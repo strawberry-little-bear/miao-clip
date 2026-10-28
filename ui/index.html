@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f5f1" />
+    <title>妙夹 · MiaoClip</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-frame">
+      <aside class="sidebar">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">夹</div>
+          <div><strong>妙夹</strong><span>MiaoClip</span></div>
+        </div>
+        <div class="workspace-label">工作区</div>
+        <nav class="primary-nav" aria-label="主要分区">
+          <button class="nav-item is-active" data-view="inbox" type="button"><span class="nav-symbol" aria-hidden="true">▦</span><span>收件箱</span><span class="nav-count" id="inbox-count">0</span></button>
+          <button class="nav-item" data-view="pinned" type="button"><span class="nav-symbol" aria-hidden="true">☆</span><span>已固定</span></button>
+          <button class="nav-item" data-view="sensitive" type="button"><span class="nav-symbol" aria-hidden="true">◇</span><span>敏感内容</span></button>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="local-status"><span></span>仅保存在本机</div>
+          <button class="nav-item secondary-nav" data-view="settings" type="button"><span class="nav-symbol" aria-hidden="true">⚙</span><span>设置</span></button>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <div><p class="overline">本地剪贴板工作区</p><h1 id="view-title">收件箱</h1></div>
+          <div class="header-actions">
+            <label class="search-box"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="搜索本地内容" autocomplete="off" /><kbd>⌘ K</kbd></label>
+            <button class="read-button" id="read-button" type="button"><span aria-hidden="true">↓</span>读取剪贴板</button>
+          </div>
+        </header>
+
+        <div class="workspace-grid">
+          <section class="feed-column" aria-labelledby="feed-heading">
+            <div class="section-bar">
+              <div><h2 id="feed-heading">最近内容</h2><p id="feed-caption">手动读取后，内容会出现在这里</p></div>
+              <button class="quiet-button" id="clear-session" type="button">清空本次记录</button>
+            </div>
+            <div class="feed" id="feed">
+              <div class="empty-feed" id="empty-feed">
+                <div class="empty-mark" aria-hidden="true">＋</div>
+                <strong>还没有内容</strong>
+                <p>从系统剪贴板读取一段文本，妙夹会识别它的类型并给出下一步动作。</p>
+                <button class="empty-action" id="empty-read-button" type="button">读取当前剪贴板</button>
+              </div>
+            </div>
+          </section>
+
+          <aside class="detail-column" aria-labelledby="detail-heading">
+            <div class="detail-head">
+              <div><p class="overline">选中内容</p><h2 id="detail-heading">尚未选择</h2></div>
+              <span class="type-badge" id="content-kind">空</span>
+            </div>
+            <div class="detail-preview" id="clipboard-preview">读取剪贴板后，内容预览会显示在这里。</div>
+            <div class="detail-meta"><span id="content-length">0 字符</span><span id="content-time">等待读取</span></div>
+            <div class="detail-actions">
+              <button class="action-tile" data-action="format-json" type="button"><span class="tile-icon">{ }</span><span><strong>格式化 JSON</strong><small>整理结构并生成结果</small></span></button>
+              <button class="action-tile" data-action="clean-text" type="button"><span class="tile-icon">Aa</span><span><strong>清洁文本</strong><small>移除多余空白和换行</small></span></button>
+              <button class="action-tile" data-action="copy-result" type="button"><span class="tile-icon">↗</span><span><strong>复制处理结果</strong><small>写回系统剪贴板</small></span></button>
+            </div>
+            <div class="result-block">
+              <div class="result-heading"><span>处理结果</span><button class="quiet-button" id="clear-result" type="button">清空</button></div>
+              <pre id="result-preview">还没有处理结果。</pre>
+            </div>
+            <p class="message" id="message" role="status"></p>
+          </aside>
+        </div>
+      </main>
+    </div>
+    <script src="main.js"></script>
+  </body>
+</html>

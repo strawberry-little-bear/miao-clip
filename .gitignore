@@ -1,0 +1,7 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Tauri and Rust build output
+/src-tauri/target/
+/src-tauri/gen/schemas/
