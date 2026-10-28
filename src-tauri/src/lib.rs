@@ -1,15 +1,18 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
 use arboard::Clipboard;
+use clipboard_master::{CallbackResult, ClipboardHandler, Master};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewWindow};
 
 const MAX_HISTORY_ENTRIES: usize = 100;
 const HISTORY_FILE_NAME: &str = "history.json";
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct ClipboardSnapshot {
     kind: &'static str,
     sensitivity: &'static str,
@@ -25,6 +28,8 @@ struct HistoryEntry {
     title: String,
     kind: String,
     time: String,
+    #[serde(default)]
+    pinned: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -37,6 +42,33 @@ struct HistoryFile {
 struct HistorySaveResult {
     saved_count: usize,
     skipped_sensitive: usize,
+}
+
+struct ClipboardMonitor {
+    app: AppHandle,
+}
+
+impl ClipboardHandler for ClipboardMonitor {
+    fn on_clipboard_change(&mut self) -> CallbackResult {
+        // macOS may still be writing the pasteboard when changeCount changes.
+        // Match the native watcher behavior used by Ctrl-CCCC and read after a
+        // short settling period so the event already contains the new value.
+        thread::sleep(Duration::from_millis(50));
+        match read_clipboard() {
+            Ok(snapshot) => {
+                if let Err(error) = self.app.emit("clipboard-changed", snapshot) {
+                    log::warn!("无法通知前端剪贴板变化：{error}");
+                }
+            }
+            Err(error) => log::warn!("读取剪贴板变化失败：{error}"),
+        }
+        CallbackResult::Next
+    }
+
+    fn on_clipboard_error(&mut self, error: std::io::Error) -> CallbackResult {
+        log::warn!("剪贴板监听错误：{error}");
+        CallbackResult::Next
+    }
 }
 
 fn preview(text: &str) -> String {
@@ -156,6 +188,75 @@ fn write_clipboard(text: String) -> Result<(), String> {
     clipboard.set_text(text).map_err(|error| error.to_string())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ToastRequest {
+    kind: String,
+    message: String,
+    position: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ToastPayload {
+    kind: String,
+    message: String,
+    position: String,
+    duration_ms: u64,
+    fade_ms: u64,
+}
+
+#[tauri::command]
+fn show_clipboard_toast(app: AppHandle, request: ToastRequest) -> Result<(), String> {
+    app.emit(
+        "toast-show",
+        ToastPayload {
+            kind: request.kind,
+            message: request.message,
+            position: request.position,
+            duration_ms: 2600,
+            fade_ms: 180,
+        },
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn place_clipboard_toast(
+    window: WebviewWindow,
+    position: String,
+    avail_left: f64,
+    avail_top: f64,
+    avail_width: f64,
+    avail_height: f64,
+    content_height: f64,
+) -> Result<(), String> {
+    let width = 390.0;
+    let height = content_height.clamp(88.0, 108.0).ceil();
+    let x = match position.as_str() {
+        "top-left" | "bottom-left" => avail_left + 20.0,
+        _ => avail_left + avail_width - width - 20.0,
+    };
+    let y = match position.as_str() {
+        "top-left" | "top-right" => avail_top + 20.0,
+        _ => avail_top + avail_height - height - 20.0,
+    };
+
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|error| error.to_string())?;
+    window
+        .set_position(LogicalPosition::new(x, y))
+        .map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn hide_clipboard_toast(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("toast") {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn format_json(text: String) -> Result<String, String> {
     let value: serde_json::Value =
@@ -220,11 +321,21 @@ fn clear_history(app: AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("妙夹 · MiaoClip")
-                .inner_size(920.0, 640.0)
-                .resizable(true)
-                .build()?;
+            let monitor_app = app.handle().clone();
+            std::thread::Builder::new()
+                .name("clipboard-monitor".to_string())
+                .spawn(move || {
+                    let mut monitor = match Master::new(ClipboardMonitor { app: monitor_app }) {
+                        Ok(monitor) => monitor,
+                        Err(error) => {
+                            log::error!("无法启动剪贴板监听：{error}");
+                            return;
+                        }
+                    };
+                    if let Err(error) = monitor.run() {
+                        log::error!("剪贴板监听已停止：{error}");
+                    }
+                })?;
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -239,9 +350,12 @@ pub fn run() {
             clear_history,
             clean_text,
             format_json,
+            hide_clipboard_toast,
             load_history,
+            place_clipboard_toast,
             read_clipboard,
             save_history,
+            show_clipboard_toast,
             write_clipboard,
         ])
         .run(tauri::generate_context!())
@@ -259,6 +373,7 @@ mod tests {
             title: text.to_string(),
             kind: "文本".to_string(),
             time: "2026-10-28T00:00:00.000Z".to_string(),
+            pinned: false,
         }
     }
 

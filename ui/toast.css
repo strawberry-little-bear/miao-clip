@@ -1,0 +1,58 @@
+:root {
+  --fade: 180ms;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 108px;
+  padding: 17px 18px;
+  border: 1px solid rgba(74, 91, 83, 0.16);
+  border-radius: 16px;
+  color: #26312d;
+  background: rgba(255, 254, 250, 0.96);
+  box-shadow: 0 16px 42px rgba(38, 55, 49, 0.2);
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+  transition: opacity var(--fade) ease, transform var(--fade) ease;
+  will-change: opacity, transform;
+}
+
+.toast[data-state="visible"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.toast-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid #d1b65b;
+  border-radius: 12px;
+  color: #544613;
+  background: #f1c75b;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.toast-copy { min-width: 0; flex: 1; }
+.toast-heading { display: flex; align-items: center; gap: 8px; color: #6d7771; font-size: 11px; font-weight: 700; }
+.toast-heading span:last-child { color: #356d78; }
+.toast-copy p { margin: 7px 0 0; overflow: hidden; color: #26312d; font-size: 13px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.toast-status { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #5e9d82; box-shadow: 0 0 0 4px rgba(94, 157, 130, 0.12); }

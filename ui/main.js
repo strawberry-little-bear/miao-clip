@@ -2,7 +2,24 @@
   "use strict";
 
   const invoke = window.__TAURI__?.core?.invoke;
-  const state = { currentText: "", resultText: "", entries: [], selectedId: null, selectedEntry: null };
+  const listen = window.__TAURI__?.event?.listen;
+  const state = {
+    currentText: "",
+    resultText: "",
+    entries: [],
+    selectedId: null,
+    selectedEntry: null,
+    view: "inbox",
+    lastClipboardText: null,
+    isPollingClipboard: false,
+    notificationSettings: {
+      inApp: true,
+      desktop: true,
+      sensitive: false,
+      position: "bottom-right",
+    },
+    toastTimer: null,
+  };
   const elements = {
     viewTitle: document.getElementById("view-title"),
     feedCaption: document.getElementById("feed-caption"),
@@ -17,10 +34,56 @@
     contentTime: document.getElementById("content-time"),
     resultPreview: document.getElementById("result-preview"),
     message: document.getElementById("message"),
+    toastRegion: document.getElementById("toast-region"),
+    settingsPanel: document.getElementById("settings-panel"),
+    notifyInApp: document.getElementById("notify-in-app"),
+    notifyDesktop: document.getElementById("notify-desktop"),
+    notifySensitive: document.getElementById("notify-sensitive"),
+    notifyPosition: document.getElementById("notify-position"),
+    settingsNote: document.getElementById("settings-note"),
   };
 
   function setMessage(text = "") {
     elements.message.textContent = text;
+    if (!text || !state.notificationSettings.inApp) return;
+    elements.toastRegion.textContent = text;
+    elements.toastRegion.classList.add("is-visible");
+    window.clearTimeout(state.toastTimer);
+    state.toastTimer = window.setTimeout(() => elements.toastRegion.classList.remove("is-visible"), 4200);
+  }
+
+  function loadNotificationSettings() {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("miao-clip-notifications-v5") || "{}");
+      state.notificationSettings = { ...state.notificationSettings, ...saved };
+    } catch (error) {
+      console.warn("读取通知设置失败", error);
+    }
+    elements.notifyInApp.checked = state.notificationSettings.inApp;
+    elements.notifyDesktop.checked = state.notificationSettings.desktop;
+    elements.notifySensitive.checked = state.notificationSettings.sensitive;
+    elements.notifyPosition.value = state.notificationSettings.position;
+  }
+
+  function saveNotificationSettings() {
+    window.localStorage.setItem("miao-clip-notifications-v5", JSON.stringify(state.notificationSettings));
+    elements.settingsNote.textContent = "通知设置已保存在本机。";
+  }
+
+  async function notifyClipboard(title, sensitive = false) {
+    if (!state.notificationSettings.desktop || (sensitive && !state.notificationSettings.sensitive)) return;
+    try {
+      await invoke("show_clipboard_toast", {
+        request: {
+          kind: sensitive ? "敏感内容" : "新剪贴板内容",
+          message: sensitive ? "已捕获敏感内容，原文不会显示。" : `已自动捕获：${title}`,
+          position: state.notificationSettings.position,
+        },
+      });
+    } catch (error) {
+      console.warn("发送桌面通知失败", error);
+      setMessage(`桌面浮层暂不可用：${String(error)}`);
+    }
   }
 
   function requireTauri() {
@@ -35,6 +98,7 @@
       title: firstLine || "空文本",
       kind: text.trim().startsWith("{") || text.trim().startsWith("[") ? "JSON" : "文本",
       time,
+      pinned: false,
     };
   }
 
@@ -51,8 +115,11 @@
 
   function visibleEntries() {
     const query = elements.searchInput.value.trim().toLowerCase();
-    if (!query) return state.entries;
-    return state.entries.filter((entry) => entry.text.toLowerCase().includes(query));
+    const viewEntries = state.view === "pinned"
+      ? state.entries.filter((entry) => entry.pinned)
+      : state.view === "inbox" ? state.entries : [];
+    if (!query) return viewEntries;
+    return viewEntries.filter((entry) => entry.text.toLowerCase().includes(query));
   }
 
   function renderFeed() {
@@ -61,13 +128,30 @@
     elements.emptyFeed.hidden = entries.length > 0;
     elements.feed.querySelectorAll(".feed-card").forEach((card) => card.remove());
     entries.forEach((entry) => {
-      const card = document.createElement("button");
-      card.type = "button";
+      const card = document.createElement("article");
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}`;
-      card.innerHTML = `<span class="feed-icon">${entry.kind === "JSON" ? "{}" : "T"}</span><span><strong>${escapeHtml(entry.title)}</strong><small>${entry.kind} · ${entry.text.length} 字符</small></span><span class="feed-time">${formatTime(entry.time)}</span>`;
-      card.addEventListener("click", () => selectEntry(entry.id));
+      card.innerHTML = `<button class="feed-card-main" type="button"><span class="feed-icon">${entry.kind === "JSON" ? "{}" : "T"}</span><span><strong>${escapeHtml(entry.title)}</strong><small>${entry.kind} · ${entry.text.length} 字符</small></span><span class="feed-time">${formatTime(entry.time)}</span></button><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消固定" : "固定内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消固定" : "固定内容"}">${entry.pinned ? "★" : "☆"}</button>`;
+      card.querySelector(".feed-card-main").addEventListener("click", () => selectEntry(entry.id));
+      card.querySelector(".pin-button").addEventListener("click", (event) => togglePinned(entry.id, event));
       elements.feed.append(card);
     });
+  }
+
+  async function togglePinned(id, event) {
+    event.stopPropagation();
+    const entry = state.entries.find((candidate) => candidate.id === id);
+    if (!entry) return;
+    entry.pinned = !entry.pinned;
+    renderFeed();
+    try {
+      requireTauri();
+      await saveHistory();
+      setMessage(entry.pinned ? "内容已固定。" : "内容已取消固定。");
+    } catch (error) {
+      entry.pinned = !entry.pinned;
+      renderFeed();
+      setMessage(String(error));
+    }
   }
 
   function selectEntry(id) {
@@ -99,10 +183,10 @@
   async function loadHistory() {
     requireTauri();
     const entries = await invoke("load_history");
-    state.entries = entries.map((entry) => ({ ...entry, time: entry.time || new Date().toISOString() }));
+    state.entries = entries.map((entry) => ({ ...entry, time: entry.time || new Date().toISOString(), pinned: Boolean(entry.pinned) }));
     elements.feedCaption.textContent = state.entries.length
       ? `已恢复 ${state.entries.length} 条本地历史`
-      : "还没有本地历史，读取剪贴板后会自动保存";
+      : "复制内容后会自动出现在这里";
     renderFeed();
   }
 
@@ -113,41 +197,95 @@
     }
   }
 
-  async function readClipboard() {
-    requireTauri();
-    const snapshot = await invoke("read_clipboard");
+  async function handleClipboardSnapshot(snapshot, automatic = false) {
     if (snapshot.kind === "other") {
-      setMessage(snapshot.preview);
+      if (!automatic) setMessage(snapshot.preview);
       return;
     }
     const text = snapshot.text || "";
+    state.lastClipboardText = text;
     const entry = makeEntry(text);
     state.currentText = text;
     state.resultText = text;
     elements.resultPreview.textContent = text || "还没有处理结果。";
     if (snapshot.kind === "empty") {
-      state.selectedId = null;
-      state.selectedEntry = entry;
-      elements.detailHeading.textContent = "空文本";
-      elements.contentKind.textContent = "空";
-      elements.contentLength.textContent = "0 字符";
-      elements.contentTime.textContent = "未写入本地历史";
-      elements.preview.textContent = "（空文本）";
-      renderFeed();
-      setMessage("剪贴板当前为空，未新增历史。");
+      if (!automatic) {
+        state.selectedId = null;
+        state.selectedEntry = entry;
+        elements.detailHeading.textContent = "空文本";
+        elements.contentKind.textContent = "空";
+        elements.contentLength.textContent = "0 字符";
+        elements.contentTime.textContent = "未写入本地历史";
+        elements.preview.textContent = "（空文本）";
+        renderFeed();
+        setMessage("剪贴板当前为空，未新增历史。");
+      }
       return;
     }
     if (snapshot.sensitivity === "sensitive") {
       showTransientEntry(entry);
-      setMessage("检测到疑似敏感内容，本次仅临时使用，不会写入普通历史。");
+      const message = automatic ? "已捕获敏感内容，仅临时使用，不会写入普通历史。" : "检测到疑似敏感内容，本次仅临时使用，不会写入普通历史。";
+      setMessage(message);
+      if (automatic) await notifyClipboard("敏感内容", true);
       return;
     }
-    state.entries = [entry, ...state.entries.filter((item) => item.text !== text)].slice(0, 100);
-    state.selectedId = entry.id;
-    elements.feedCaption.textContent = "本地历史会在应用重启后保留";
-    selectEntry(entry.id);
+    const existing = state.entries.find((item) => item.text === text);
+    const storedEntry = existing
+      ? { ...existing, time: new Date().toISOString() }
+      : entry;
+    state.entries = [storedEntry, ...state.entries.filter((item) => item.text !== text)].slice(0, 100);
+    state.selectedId = storedEntry.id;
+    elements.feedCaption.textContent = "复制内容后会自动保存到本地历史";
+    selectEntry(storedEntry.id);
+    if (automatic) await notifyClipboard(storedEntry.title);
     await saveHistory();
-    setMessage("");
+    const message = automatic ? `已自动捕获：${storedEntry.title}` : "已读取并保存到本地历史。";
+    setMessage(message);
+  }
+
+  async function readClipboard() {
+    requireTauri();
+    const snapshot = await invoke("read_clipboard");
+    await handleClipboardSnapshot(snapshot);
+  }
+
+  async function pollClipboard() {
+    if (!invoke || state.isPollingClipboard) return;
+    state.isPollingClipboard = true;
+    try {
+      const snapshot = await invoke("read_clipboard");
+      const text = snapshot.text || "";
+      if (snapshot.kind === "other" || text === state.lastClipboardText) return;
+      await handleClipboardSnapshot(snapshot, true);
+    } catch (error) {
+      console.warn("自动监听剪贴板失败", error);
+    } finally {
+      state.isPollingClipboard = false;
+    }
+  }
+
+  async function startClipboardMonitor() {
+    if (listen) {
+      await listen("clipboard-changed", ({ payload }) => {
+        if (!payload || payload.kind === "other") {
+          pollClipboard();
+          return;
+        }
+        if (payload.text === state.lastClipboardText) return;
+        handleClipboardSnapshot(payload, true).catch((error) => {
+          console.warn("处理剪贴板事件失败", error);
+        });
+      });
+    }
+    try {
+      const snapshot = await invoke("read_clipboard");
+      state.lastClipboardText = snapshot.kind === "text" ? snapshot.text || "" : null;
+    } catch (error) {
+      console.warn("初始化剪贴板监听失败", error);
+    }
+    // Native events are preferred; this catches environments where the native
+    // backend cannot observe the current desktop session.
+    window.setInterval(pollClipboard, listen ? 2000 : 700);
   }
 
   async function runAction(action) {
@@ -172,15 +310,46 @@
 
   function setView(view) {
     const titles = { inbox: "收件箱", pinned: "已固定", sensitive: "敏感内容", settings: "设置" };
+    const captions = {
+      inbox: state.entries.length ? `已恢复 ${state.entries.length} 条本地历史` : "复制内容后会自动出现在这里",
+      pinned: "固定的内容会在应用重启后保留",
+      sensitive: "敏感内容暂时只在当前运行期间使用",
+      settings: "本地设置将在后续迭代中接入",
+    };
+    state.view = titles[view] ? view : "inbox";
+    const isSettings = state.view === "settings";
+    elements.settingsPanel.hidden = !isSettings;
+    document.querySelector(".workspace-grid").hidden = isSettings;
     elements.viewTitle.textContent = titles[view] || "收件箱";
+    elements.feedCaption.textContent = captions[state.view];
     document.querySelectorAll(".nav-item[data-view]").forEach((item) => item.classList.toggle("is-active", item.dataset.view === view));
-    if (view !== "inbox") setMessage(`${titles[view]}将在本地数据层接入后启用。`);
+    renderFeed();
+    if (view === "sensitive") setMessage("敏感内容不会写入普通历史。后续会接入独立的安全存储。" );
+    else if (view === "settings") setMessage("通知设置已加载。" );
+    else setMessage("");
   }
 
   document.getElementById("read-button").addEventListener("click", () => readClipboard().catch((error) => setMessage(String(error))));
   document.getElementById("empty-read-button").addEventListener("click", () => readClipboard().catch((error) => setMessage(String(error))));
   document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => runAction(button.dataset.action)));
   document.querySelectorAll(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
+  document.getElementById("settings-back").addEventListener("click", () => setView("inbox"));
+  elements.notifyInApp.addEventListener("change", () => {
+    state.notificationSettings.inApp = elements.notifyInApp.checked;
+    saveNotificationSettings();
+  });
+  elements.notifyDesktop.addEventListener("change", () => {
+    state.notificationSettings.desktop = elements.notifyDesktop.checked;
+    saveNotificationSettings();
+  });
+  elements.notifySensitive.addEventListener("change", () => {
+    state.notificationSettings.sensitive = elements.notifySensitive.checked;
+    saveNotificationSettings();
+  });
+  elements.notifyPosition.addEventListener("change", () => {
+    state.notificationSettings.position = elements.notifyPosition.value;
+    saveNotificationSettings();
+  });
   elements.searchInput.addEventListener("input", renderFeed);
   document.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -193,7 +362,7 @@
     state.selectedId = null;
     state.selectedEntry = null;
     state.currentText = "";
-    elements.feedCaption.textContent = "还没有本地历史，读取剪贴板后会自动保存";
+    elements.feedCaption.textContent = "复制内容后会自动出现在这里";
     elements.detailHeading.textContent = "尚未选择";
     elements.contentKind.textContent = "空";
     elements.contentLength.textContent = "0 字符";
@@ -218,6 +387,9 @@
     setMessage("当前页面不是在 Tauri 应用中运行。");
     renderFeed();
   } else {
-    loadHistory().catch((error) => setMessage(String(error)));
+    loadNotificationSettings();
+    loadHistory()
+      .then(startClipboardMonitor)
+      .catch((error) => setMessage(String(error)));
   }
 })();
