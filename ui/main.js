@@ -271,7 +271,9 @@
           pollClipboard();
           return;
         }
-        if (payload.text === state.lastClipboardText) return;
+        // A native change event means the user copied again, even when the
+        // copied text is identical. History deduplication is separate from
+        // notification feedback, so repeated copies still produce a toast.
         handleClipboardSnapshot(payload, true).catch((error) => {
           console.warn("处理剪贴板事件失败", error);
         });
