@@ -2,7 +2,7 @@
   "use strict";
 
   const invoke = window.__TAURI__?.core?.invoke;
-  const state = { currentText: "", resultText: "", entries: [], selectedId: null };
+  const state = { currentText: "", resultText: "", entries: [], selectedId: null, selectedEntry: null };
   const elements = {
     viewTitle: document.getElementById("view-title"),
     feedCaption: document.getElementById("feed-caption"),
@@ -27,19 +27,20 @@
     if (!invoke) throw new Error("Tauri API 不可用，请通过 cargo tauri dev 启动。\n");
   }
 
-  function makeEntry(text) {
+  function makeEntry(text, time = new Date().toISOString()) {
     const firstLine = text.split(/\r?\n/, 1)[0].trim();
     return {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       text,
       title: firstLine || "空文本",
       kind: text.trim().startsWith("{") || text.trim().startsWith("[") ? "JSON" : "文本",
-      time: new Date(),
+      time,
     };
   }
 
   function formatTime(date) {
-    return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    const value = date instanceof Date ? date : new Date(date);
+    return value.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   }
 
   function escapeHtml(value) {
@@ -73,6 +74,7 @@
     const entry = state.entries.find((candidate) => candidate.id === id);
     if (!entry) return;
     state.selectedId = id;
+    state.selectedEntry = entry;
     state.currentText = entry.text;
     elements.detailHeading.textContent = entry.title;
     elements.contentKind.textContent = entry.kind;
@@ -80,6 +82,35 @@
     elements.contentTime.textContent = `读取于 ${formatTime(entry.time)}`;
     elements.preview.textContent = entry.text || "（空文本）";
     renderFeed();
+  }
+
+  function showTransientEntry(entry) {
+    state.selectedId = null;
+    state.selectedEntry = entry;
+    state.currentText = entry.text;
+    elements.detailHeading.textContent = entry.title;
+    elements.contentKind.textContent = "敏感内容";
+    elements.contentLength.textContent = `${entry.text.length} 字符`;
+    elements.contentTime.textContent = "仅本次使用，不写入普通历史";
+    elements.preview.textContent = entry.text || "（空文本）";
+    renderFeed();
+  }
+
+  async function loadHistory() {
+    requireTauri();
+    const entries = await invoke("load_history");
+    state.entries = entries.map((entry) => ({ ...entry, time: entry.time || new Date().toISOString() }));
+    elements.feedCaption.textContent = state.entries.length
+      ? `已恢复 ${state.entries.length} 条本地历史`
+      : "还没有本地历史，读取剪贴板后会自动保存";
+    renderFeed();
+  }
+
+  async function saveHistory() {
+    const result = await invoke("save_history", { entries: state.entries });
+    if (result.skipped_sensitive > 0) {
+      setMessage("检测到敏感内容，未写入普通历史。");
+    }
   }
 
   async function readClipboard() {
@@ -92,12 +123,30 @@
     const text = snapshot.text || "";
     const entry = makeEntry(text);
     state.currentText = text;
-    state.entries = [entry, ...state.entries.filter((item) => item.text !== text)].slice(0, 20);
-    state.selectedId = entry.id;
     state.resultText = text;
     elements.resultPreview.textContent = text || "还没有处理结果。";
-    elements.feedCaption.textContent = "当前会话中的本地内容";
+    if (snapshot.kind === "empty") {
+      state.selectedId = null;
+      state.selectedEntry = entry;
+      elements.detailHeading.textContent = "空文本";
+      elements.contentKind.textContent = "空";
+      elements.contentLength.textContent = "0 字符";
+      elements.contentTime.textContent = "未写入本地历史";
+      elements.preview.textContent = "（空文本）";
+      renderFeed();
+      setMessage("剪贴板当前为空，未新增历史。");
+      return;
+    }
+    if (snapshot.sensitivity === "sensitive") {
+      showTransientEntry(entry);
+      setMessage("检测到疑似敏感内容，本次仅临时使用，不会写入普通历史。");
+      return;
+    }
+    state.entries = [entry, ...state.entries.filter((item) => item.text !== text)].slice(0, 100);
+    state.selectedId = entry.id;
+    elements.feedCaption.textContent = "本地历史会在应用重启后保留";
     selectEntry(entry.id);
+    await saveHistory();
     setMessage("");
   }
 
@@ -139,17 +188,25 @@
       elements.searchInput.focus();
     }
   });
-  document.getElementById("clear-session").addEventListener("click", () => {
+  document.getElementById("clear-session").addEventListener("click", async () => {
     state.entries = [];
     state.selectedId = null;
+    state.selectedEntry = null;
     state.currentText = "";
-    elements.feedCaption.textContent = "手动读取后，内容会出现在这里";
+    elements.feedCaption.textContent = "还没有本地历史，读取剪贴板后会自动保存";
     elements.detailHeading.textContent = "尚未选择";
     elements.contentKind.textContent = "空";
     elements.contentLength.textContent = "0 字符";
     elements.contentTime.textContent = "等待读取";
     elements.preview.textContent = "读取剪贴板后，内容预览会显示在这里。";
     renderFeed();
+    try {
+      requireTauri();
+      await invoke("clear_history");
+      setMessage("本地历史已清空。");
+    } catch (error) {
+      setMessage(String(error));
+    }
   });
   document.getElementById("clear-result").addEventListener("click", () => {
     state.resultText = "";
@@ -157,6 +214,10 @@
     setMessage("");
   });
 
-  if (!invoke) setMessage("当前页面不是在 Tauri 应用中运行。");
-  renderFeed();
+  if (!invoke) {
+    setMessage("当前页面不是在 Tauri 应用中运行。");
+    renderFeed();
+  } else {
+    loadHistory().catch((error) => setMessage(String(error)));
+  }
 })();
