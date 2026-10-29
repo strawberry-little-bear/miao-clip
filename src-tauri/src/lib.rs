@@ -261,22 +261,61 @@ fn source_app_name() -> String {
 
     #[cfg(target_os = "windows")]
     {
-        if let Ok(output) = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "$p = Get-Process | Where-Object { $_.MainWindowHandle -eq (Get-Process -Id $PID).MainWindowHandle } | Select-Object -First 1 -ExpandProperty ProcessName; if ($p) { $p }",
-            ])
-            .output()
-        {
-            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if output.status.success() && !name.is_empty() {
-                return name;
-            }
+        if let Some(name) = windows_foreground_app_name() {
+            return name;
         }
     }
 
     default_source_app()
+}
+
+#[cfg(target_os = "windows")]
+fn windows_foreground_app_name() -> Option<String> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+
+    // The clipboard watcher runs in a background thread. Querying the
+    // foreground window at capture time gives us the application that owned
+    // the clipboard before MiaoClip handled the change.
+    unsafe {
+        let window = GetForegroundWindow();
+        if window.is_null() {
+            return None;
+        }
+
+        let mut process_id = 0u32;
+        if GetWindowThreadProcessId(window, &mut process_id) == 0 || process_id == 0 {
+            return None;
+        }
+
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id);
+        if process.is_null() {
+            return None;
+        }
+
+        let mut path = [0u16; 32_768];
+        let mut path_length = path.len() as u32;
+        let succeeded =
+            QueryFullProcessImageNameW(process, 0, path.as_mut_ptr(), &mut path_length) != 0;
+        CloseHandle(process);
+
+        if !succeeded || path_length == 0 {
+            return None;
+        }
+
+        let executable = OsString::from_wide(&path[..path_length as usize]);
+        Path::new(&executable)
+            .file_stem()
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
+    }
 }
 
 fn is_sensitive_text(text: &str) -> bool {
