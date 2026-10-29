@@ -723,6 +723,15 @@
   async function startClipboardMonitor() {
     renderCaptureStatus();
     if (listen) {
+      await listen("capture-state-changed", ({ payload }) => {
+        const captureState = payload || {};
+        state.captureState = {
+          paused: Boolean(captureState.paused),
+          privacyMode: Boolean(captureState.privacy_mode ?? captureState.privacyMode),
+        };
+        elements.privacyMode.checked = state.captureState.privacyMode;
+        renderCaptureStatus();
+      });
       await listen("open-clipboard-entry", ({ payload }) => {
         if (typeof payload === "string") focusCapturedEntry(payload);
       });

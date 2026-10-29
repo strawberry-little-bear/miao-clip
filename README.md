@@ -1,89 +1,116 @@
-# MiaoClip 妙夹
+<div align="center">
+  <img src="src-tauri/icons/icon.png" alt="妙夹图标" width="128" />
+  <h1>妙夹 · MiaoClip</h1>
+  <p>一个本地优先、懂内容、可持续使用的桌面剪贴板工作区。</p>
+  <p>
+    <a href="https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/strawberry-little-bear/miao-clip/ci.yml?style=flat-square&label=CI" alt="CI 状态" /></a>
+    <img src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2" />
+    <img src="https://img.shields.io/badge/Rust-2024-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2024" />
+    <img src="https://img.shields.io/badge/license-MIT-2f855a?style=flat-square" alt="MIT License" />
+  </p>
+</div>
 
-![MiaoClip](https://img.shields.io/badge/MiaoClip-%E5%A6%99%E5%A4%B9-e85d75?style=flat-square)
-![Tauri](https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white)
-![Rust](https://img.shields.io/badge/Rust-2024-000000?style=flat-square&logo=rust&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-2f855a?style=flat-square)
+## 为什么做妙夹
 
-**一个面向个人工作流的本地优先剪贴板工作区。**
+剪贴板是每天都会用到的临时工作区，但复制一次新的内容之后，之前的账号、链接、图片、文件和代码片段就很难找回。妙夹把这些内容自动收进本地历史，让它们可以被理解、搜索、预览和再次复制。
 
-复制过的文字、链接、账号、密码、图片和文件，不应该在下一次复制后就消失。MiaoClip 会自动捕获剪贴板内容，在本机整理、搜索、预览和再次使用，让剪贴板从“一次性中转站”变成一个轻量、可控的收件箱。
+妙夹是一个独立重新实现的项目：保留自动监听、历史记录和再次复制这些必要能力，但不照搬朋友的 `Ctrl-CCCC` 代码，也不试图做成 CopyQ 那种复杂的通用自动化平台。它更适合个人电脑上的日常工作流。
 
-> MiaoClip 是独立重新实现的项目，不是 `Ctrl-CCCC` 的代码分支，也不是 CopyQ 的复刻。它保留自动监听、历史记录和再次复制这些基础能力，但更关注个人场景下的内容识别、隐私边界和简单易用。
+## 核心体验
 
-## 你可以用它做什么
+| 自动收件 | 看得懂 | 用得回 |
+| --- | --- | --- |
+| 复制后自动捕获文字、链接、账号、密码、图片和文件 | 识别内容类型、敏感状态、来源应用和捕获时间 | 一键复制、显示敏感原文、复制图片或文件、收藏常用记录 |
 
-- 复制后自动捕获，不需要反复点击“读取当前剪贴板”
-- 保存并恢复最近的本地剪贴板历史，重启应用后记录仍然存在
-- 自动区分普通文本、URL、账号、密码、图片和文件
-- 密码、Token、API Key 等疑似敏感内容默认遮罩，可临时显示并复制原文
-- 图片保留本地预览，文件记录显示文件名而不是冗长路径
-- 搜索、按类型筛选、按时间筛选、收藏和删除历史记录
-- 显示复制来源应用、捕获时间、内容类型和敏感状态
-- 通过桌面浮层提示复制成功，支持设置通知开关、位置和持续时间
-- 支持暂停监听和隐私模式，避免私人内容写入历史或弹出通知
-- 支持开机自动启动设置
-- 支持 macOS、Linux 和 Windows 的跨平台构建
+```mermaid
+flowchart LR
+    A[在任意应用复制] --> B[妙夹后台监听]
+    B --> C{识别内容}
+    C -->|文本 / URL / 账号| D[本地历史]
+    C -->|密码 / Token| E[遮罩保存]
+    C -->|图片| F[本地图片副本]
+    C -->|文件| G[记录文件名]
+    D --> H[搜索 / 收藏 / 再次复制]
+    E --> H
+    F --> H
+    G --> H
+```
 
-## 界面概览
+### 已经可以使用
 
-MiaoClip 的工作区围绕三个动作展开：**自动收件、快速理解、再次使用**。
+- **自动捕获**：复制成功后自动写入历史，不需要主动点击“读取当前剪贴板”。
+- **本地持久化**：重启电脑或应用后，最近的历史仍然保存在本机。
+- **内容识别**：区分普通文本、URL、账号、疑似密码、图片和文件。
+- **敏感内容保护**：密码、Token、API Key 等内容在列表和提示中显示为遮罩；点击眼睛按钮可临时显示并复制原文。
+- **图片和文件**：图片保留本地预览；文件显示最后的文件名，而不是冗长的完整路径；两者都可以再次复制。
+- **来源追踪**：记录来源应用、捕获时间、内容类型、敏感状态和收藏状态。
+- **桌面提示**：复制成功后显示可配置的提示浮层，支持开关、位置和持续时间设置；点击提示可以跳转到对应记录。
+- **暂停与隐私模式**：暂时停止捕获、通知和新记录写入，适合复制银行卡号、身份证或私人聊天内容。
+- **系统托盘**：关闭主窗口后继续后台监听，可从托盘打开妙夹、暂停监听、切换隐私模式或退出程序。
+- **开机启动**：可以在设置中开启登录后自动启动。
 
-| 区域 | 作用 |
-| --- | --- |
-| 收件箱 | 查看最近捕获的内容，并按类型或时间筛选 |
-| 详情面板 | 预览内容、查看来源应用、显示敏感状态和可用操作 |
-| 收藏 | 保存需要反复使用的账号、链接、模板和文本 |
-| 监听开关 | 在“正在监听”和“已暂停监听”之间切换 |
-| 隐私模式 | 暂停捕获、停止通知、不写入新记录，退出后恢复监听 |
-| 设置 | 管理桌面提示、敏感内容提醒、提示位置、持续时间和开机启动 |
+## 界面与工作方式
+
+妙夹的主界面分成三个清晰区域：
+
+```text
+┌──────────────┬──────────────────────────┬────────────────────┐
+│ 导航与筛选    │ 剪贴板收件箱              │ 当前记录详情         │
+│ 收件箱        │ 搜索 / 类型 / 时间筛选    │ 内容预览             │
+│ 收藏          │ 最近复制的内容            │ 来源应用与捕获时间    │
+│ 设置          │ 图片、文件、敏感内容      │ 复制 / 收藏 / 删除    │
+└──────────────┴──────────────────────────┴────────────────────┘
+```
+
+应用图标就是妙夹的品牌标志，同时用于桌面应用、安装包和系统托盘。它位于 [`src-tauri/icons/icon.png`](src-tauri/icons/icon.png)，不同平台的图标资源也统一由 `src-tauri/icons/` 管理。
+
+## 隐私和数据
+
+妙夹没有账号、云同步或远程数据库。默认情况下，剪贴板内容只写入当前设备的 Tauri 应用数据目录：
+
+```text
+history.json       历史记录、来源应用、收藏状态和文件元数据
+images/            图片的本地 PNG 副本
+notifications.json 通知开关、位置和持续时间
+```
+
+隐私模式开启后会同时做到：
+
+1. 暂停自动捕获。
+2. 不弹桌面通知。
+3. 不写入新记录。
+4. 关闭隐私模式后恢复之前的监听状态。
+
+敏感内容识别是基于字段名、Token 前缀和文本形态的启发式判断，不是安全产品级别的密码检测。当前历史文件是本地 JSON，并不等同于系统级加密存储；后续会评估接入 macOS Keychain、Windows Credential Manager 和 Linux Secret Service。
 
 ## 平台支持
 
-| 平台 | 状态 | 说明 |
+| 平台 | 当前状态 | 备注 |
 | --- | --- | --- |
-| macOS | 可开发、可构建 | 当前主要开发环境，使用原生前台应用识别和 Tauri 桌面壳 |
-| Linux | 可构建 | 来源应用识别优先使用 `xdotool`，不同桌面环境可能需要额外配置 |
-| Windows | CI 构建支持 | 使用 Windows 原生窗口和进程 API 识别来源应用，并由 GitHub Actions 验证构建 |
+| macOS | 本地开发与构建 | 支持来源应用识别、系统托盘、通知和开机启动 |
+| Linux | CI 构建支持 | 来源应用识别依赖桌面环境；优先使用 `xdotool` |
+| Windows | CI 构建支持 | 使用 Windows 原生前台窗口和进程 API；由 GitHub Actions 构建验证 |
 
-Windows 版本不依赖 macOS 私有 API。仓库已配置 `windows-latest` 构建任务，会执行 Rust 检查、测试和 Tauri 桌面包构建。当前开发机是 macOS，因此 Windows 的 GUI 运行验证交给 Windows runner；发布前仍建议在真实 Windows 设备上测试剪贴板、通知、开机启动和 WebView2 行为。
+Windows 版本不依赖 macOS 私有 API。真实 Windows 设备上的 WebView2、剪贴板、系统通知和开机启动仍建议在发布前做一次手工验收。
 
-## 快速开始
+## 开始开发
 
 ### 环境要求
 
 - Rust stable toolchain
 - Tauri CLI 2
-- 对应操作系统的 Tauri 桌面依赖
+- 对应平台的 Tauri 桌面依赖
 
-macOS 通常需要 Xcode Command Line Tools。Linux 需要 GTK、WebKitGTK、AppIndicator 和 librsvg 等开发库。Windows 需要支持 WebView2 的系统环境，现代 Windows 10/11 通常已经具备；缺少时可安装 Microsoft Edge WebView2 Runtime。
-
-检查 Rust：
+妙夹的前端是原生 HTML、CSS 和 JavaScript，不需要 Node.js、npm 或前端构建链。Tauri 会直接把 `ui/` 作为静态资源打包；后续增加界面功能时，仍然可以直接修改 `ui/`，启动和打包命令不变。
 
 ```bash
-rustc --version
-cargo --version
-```
-
-安装 Tauri CLI：
-
-```bash
+git clone https://github.com/strawberry-little-bear/miao-clip.git
+cd miao-clip
 cargo install tauri-cli --version '^2'
-```
-
-### 启动开发版本
-
-在仓库根目录执行：
-
-```bash
 cargo tauri dev
 ```
 
-MiaoClip 不需要 Node.js、npm 或前端打包工具。Tauri 会直接将 `ui/` 目录作为静态资源加载；Rust 核心逻辑位于 `src-tauri/`。
-
-### 构建桌面安装包
-
-macOS、Linux 或 Windows 环境均可执行：
+构建安装包：
 
 ```bash
 cargo tauri build
@@ -95,70 +122,7 @@ cargo tauri build
 cargo tauri build --debug
 ```
 
-在 macOS 上通常会得到 `.app` 和 `.dmg` 相关产物；Windows 产物由 Tauri bundler 根据配置生成，通常包括 `.msi` 或 NSIS 安装包。Windows 构建也可以直接使用 GitHub Actions，无需在 macOS 上安装 Windows 交叉编译环境。
-
-## 本地数据与隐私
-
-MiaoClip 不需要账号、云端服务或远程数据库，剪贴板数据默认只保存在当前设备的 Tauri 应用数据目录中：
-
-```text
-history.json       剪贴板历史
-images/            图片本地副本
-notifications.json 通知和提示设置
-```
-
-当前版本最多保留 100 条去重后的历史记录。每条记录可以包含：
-
-- 内容和内容类型
-- 捕获时间
-- 来源应用名称
-- 是否敏感
-- 是否收藏
-- 图片尺寸或文件列表等必要元数据
-
-### 敏感内容策略
-
-MiaoClip 会根据密码字段、Token、API Key、Bearer Token 等特征判断文本是否疑似敏感。识别结果用于展示和提醒策略，不代表安全产品级别的密码检测：
-
-- 列表和桌面提示默认显示遮罩文案
-- 详情页可以点击眼睛按钮临时显示原文
-- 显示原文后可以复制到系统剪贴板
-- 敏感内容仍可按用户需要收藏、搜索和再次使用
-
-当前历史文件是本地 JSON，并不等同于系统级加密存储。未来会评估接入 macOS Keychain、Windows Credential Manager 和 Linux Secret Service，为敏感记录提供更高等级的保护。
-
-### 隐私模式
-
-隐私模式适合复制银行卡号、身份证、私人聊天或其他不希望进入历史的内容。开启后：
-
-- 暂停自动捕获
-- 不弹桌面通知
-- 不写入新记录
-- 退出隐私模式后自动恢复监听
-
-## 技术结构
-
-```text
-MiaoClip/
-├── ui/                 原生 HTML、CSS、JavaScript 界面
-├── src-tauri/
-│   ├── src/lib.rs      剪贴板监听、识别、持久化和 Tauri 命令
-│   ├── tauri.conf.json 桌面窗口、资源和打包配置
-│   └── Cargo.toml      Rust 依赖与平台配置
-└── .github/workflows/  macOS、Linux、Windows CI 与构建任务
-```
-
-核心技术：
-
-- [Tauri 2](https://tauri.app/)：跨平台桌面壳
-- [Rust](https://www.rust-lang.org/)：剪贴板监听、内容识别和本地存储
-- `arboard`、`clipboard-rs`、`clipboard-master`：剪贴板读写和变化监听
-- 原生 HTML、CSS、JavaScript：轻量界面，不引入前端构建链
-- Windows 原生 API：获取前台窗口及来源进程名称
-
-## 开发检查
-
-提交前建议执行：
+提交前检查：
 
 ```bash
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
@@ -167,17 +131,29 @@ cargo test --manifest-path src-tauri/Cargo.toml
 git diff --check
 ```
 
-GitHub Actions 会在 `ubuntu-latest`、`macos-latest` 和 `windows-latest` 上执行格式检查、编译检查和测试，并在 macOS 与 Windows runner 上构建 Tauri 桌面包。
+## 项目结构
+
+```text
+MiaoClip/
+├── ui/                       原生界面、筛选、详情和通知浮层
+├── src-tauri/
+│   ├── src/lib.rs            剪贴板监听、识别、持久化、托盘和 Tauri 命令
+│   ├── tauri.conf.json       窗口、资源和打包配置
+│   ├── capabilities/         Tauri 权限配置
+│   └── icons/                妙夹品牌和平台图标
+├── .github/workflows/        macOS、Linux、Windows CI 与构建
+└── README.md
+```
 
 ## 路线图
 
 - [x] 本地历史持久化、去重和数量限制
 - [x] 自动监听文本、URL、账号、密码、图片和文件
-- [x] 图片本地副本与预览、文件名展示
+- [x] 图片预览、文件名展示、图片和文件再次复制
 - [x] 敏感内容遮罩、临时显示和复制
-- [x] 桌面浮层提示、提示位置和持续时间设置
-- [x] 暂停监听和隐私模式
-- [x] 来源应用记录
+- [x] 桌面提示、提示位置和持续时间设置
+- [x] 暂停监听、隐私模式和系统托盘后台运行
+- [x] 来源应用记录和开机启动
 - [x] macOS、Linux、Windows CI 构建验证
 - [ ] 系统安全存储，减少敏感内容明文落盘
 - [ ] 全局快捷键与快速粘贴
@@ -188,11 +164,11 @@ GitHub Actions 会在 `ubuntu-latest`、`macos-latest` 和 `windows-latest` 上�
 
 欢迎通过 [Issues](https://github.com/strawberry-little-bear/miao-clip/issues) 反馈平台问题、使用场景和功能建议，也欢迎提交小而明确的 Pull Request。
 
-提交前请确保：
+贡献代码时请注意：
 
-1. 变更没有绕过隐私模式和敏感内容保护边界。
-2. macOS 本地检查通过，平台专属代码由 CI 覆盖。
-3. README、测试和用户可见行为与变更保持一致。
+1. 不要绕过隐私模式和敏感内容保护边界。
+2. 用户可见行为变化要同步更新 README 和测试。
+3. 平台专属代码要保留对应的条件编译和 CI 检查。
 
 ## 许可证
 

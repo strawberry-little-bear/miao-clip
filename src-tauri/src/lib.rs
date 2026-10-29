@@ -13,7 +13,18 @@ use clipboard_rs::common::RustImage;
 use clipboard_rs::{Clipboard as ClipboardFormats, ClipboardContext, RustImageData};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewWindow};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewWindow, WindowEvent,
+};
+
+#[cfg(desktop)]
+use tauri::Wry;
+#[cfg(desktop)]
+use tauri::image::Image;
+#[cfg(desktop)]
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+#[cfg(desktop)]
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 const MAX_HISTORY_ENTRIES: usize = 100;
 const HISTORY_FILE_NAME: &str = "history.json";
@@ -117,6 +128,12 @@ impl Default for NotificationSettings {
 struct RuntimeState {
     notification_settings: Arc<RwLock<NotificationSettings>>,
     capture_state: Arc<RwLock<CaptureState>>,
+}
+
+#[cfg(desktop)]
+struct TrayControls {
+    pause: MenuItem<Wry>,
+    privacy: CheckMenuItem<Wry>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -229,6 +246,102 @@ fn capture_suspended(capture_state: &Arc<RwLock<CaptureState>>) -> bool {
         .read()
         .map(|state| state.paused || state.privacy_mode)
         .unwrap_or(true)
+}
+
+#[cfg(desktop)]
+fn sync_tray_controls(app: &AppHandle, capture_state: &CaptureState) {
+    let Some(controls) = app.try_state::<TrayControls>() else {
+        return;
+    };
+
+    let pause_label = if capture_state.paused {
+        "恢复监听"
+    } else {
+        "暂停监听"
+    };
+    if let Err(error) = controls.pause.set_text(pause_label) {
+        log::warn!("无法更新托盘监听菜单：{error}");
+    }
+    if let Err(error) = controls.privacy.set_checked(capture_state.privacy_mode) {
+        log::warn!("无法更新托盘隐私模式菜单：{error}");
+    }
+}
+
+#[cfg(desktop)]
+fn show_main_window(app: &AppHandle) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不可用。".to_string())?;
+    main.show().map_err(|error| error.to_string())?;
+    main.set_focus().map_err(|error| error.to_string())
+}
+
+#[cfg(desktop)]
+fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "打开妙夹", true, None::<&str>)?;
+    let pause = MenuItem::with_id(app, "pause", "暂停监听", true, None::<&str>)?;
+    let privacy = CheckMenuItem::with_id(app, "privacy", "隐私模式", true, false, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(app, "quit", "退出妙夹", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &pause, &privacy, &separator, &quit])?;
+
+    app.manage(TrayControls {
+        pause: pause.clone(),
+        privacy: privacy.clone(),
+    });
+
+    TrayIconBuilder::with_id("main-tray")
+        .icon(Image::from_bytes(include_bytes!("../icons/32x32.png"))?)
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .tooltip("妙夹 · MiaoClip")
+        .on_menu_event(move |app, event| match event.id().as_ref() {
+            "open" => {
+                if let Err(error) = show_main_window(app) {
+                    log::warn!("无法打开妙夹主窗口：{error}");
+                }
+            }
+            "pause" => {
+                let runtime = app.state::<RuntimeState>();
+                match runtime.capture_state.write() {
+                    Ok(mut capture_state) => {
+                        capture_state.paused = !capture_state.paused;
+                        capture_state.privacy_mode = false;
+                        sync_tray_controls(app, &capture_state);
+                        let _ = app.emit("capture-state-changed", capture_state.clone());
+                    }
+                    Err(_) => log::warn!("无法更新托盘监听状态。"),
+                }
+            }
+            "privacy" => {
+                let runtime = app.state::<RuntimeState>();
+                match runtime.capture_state.write() {
+                    Ok(mut capture_state) => {
+                        capture_state.privacy_mode = !capture_state.privacy_mode;
+                        sync_tray_controls(app, &capture_state);
+                        let _ = app.emit("capture-state-changed", capture_state.clone());
+                    }
+                    Err(_) => log::warn!("无法更新托盘隐私模式状态。"),
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                if let Err(error) = show_main_window(tray.app_handle()) {
+                    log::warn!("无法打开妙夹主窗口：{error}");
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
 }
 
 fn source_app_name() -> String {
@@ -865,11 +978,16 @@ fn open_clipboard_entry(app: AppHandle, entry_id: String) -> Result<(), String> 
     if let Some(toast) = app.get_webview_window("toast") {
         toast.hide().map_err(|error| error.to_string())?;
     }
-    let main = app
-        .get_webview_window("main")
-        .ok_or_else(|| "主窗口不可用。".to_string())?;
-    main.show().map_err(|error| error.to_string())?;
-    main.set_focus().map_err(|error| error.to_string())?;
+    #[cfg(desktop)]
+    show_main_window(&app)?;
+    #[cfg(not(desktop))]
+    {
+        let main = app
+            .get_webview_window("main")
+            .ok_or_else(|| "主窗口不可用。".to_string())?;
+        main.show().map_err(|error| error.to_string())?;
+        main.set_focus().map_err(|error| error.to_string())?;
+    }
     app.emit("open-clipboard-entry", entry_id)
         .map_err(|error| error.to_string())
 }
@@ -916,6 +1034,7 @@ fn get_capture_state(state: State<'_, RuntimeState>) -> Result<CaptureState, Str
 
 #[tauri::command]
 fn set_capture_state(
+    app: AppHandle,
     state: State<'_, RuntimeState>,
     paused: bool,
     privacy_mode: bool,
@@ -926,6 +1045,8 @@ fn set_capture_state(
         .map_err(|_| "无法更新监听状态。".to_string())?;
     current.paused = paused;
     current.privacy_mode = privacy_mode;
+    #[cfg(desktop)]
+    sync_tray_controls(&app, &current);
     Ok(current.clone())
 }
 
@@ -1051,6 +1172,9 @@ pub fn run() {
                 capture_state: capture_state.clone(),
             });
 
+            #[cfg(desktop)]
+            build_tray(app)?;
+
             let monitor_app = app.handle().clone();
             std::thread::Builder::new()
                 .name("clipboard-monitor".to_string())
@@ -1079,6 +1203,17 @@ pub fn run() {
                 )?;
             }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            #[cfg(desktop)]
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        log::warn!("无法隐藏妙夹主窗口：{error}");
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             clear_history,
