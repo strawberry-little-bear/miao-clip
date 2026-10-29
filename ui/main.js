@@ -12,6 +12,7 @@
     view: "inbox",
     lastClipboardText: null,
     isPollingClipboard: false,
+    settingsSaveRequest: 0,
     notificationSettings: {
       inApp: true,
       desktop: true,
@@ -35,6 +36,9 @@
     resultPreview: document.getElementById("result-preview"),
     message: document.getElementById("message"),
     toastRegion: document.getElementById("toast-region"),
+    monitorStatus: document.getElementById("monitor-status"),
+    monitorStatusLabel: document.getElementById("monitor-status-label"),
+    monitorStatusDetail: document.getElementById("monitor-status-detail"),
     settingsPanel: document.getElementById("settings-panel"),
     notifyInApp: document.getElementById("notify-in-app"),
     notifyDesktop: document.getElementById("notify-desktop"),
@@ -43,9 +47,18 @@
     settingsNote: document.getElementById("settings-note"),
   };
 
-  function setMessage(text = "") {
+  function setMonitorStatus(status, label, detail) {
+    elements.monitorStatus.dataset.state = status;
+    elements.monitorStatusLabel.textContent = label;
+    elements.monitorStatusDetail.textContent = detail;
+  }
+
+  function setMessage(text = "", { toast = true } = {}) {
     elements.message.textContent = text;
-    if (!text || !state.notificationSettings.inApp) return;
+    if (!text || !toast || !state.notificationSettings.inApp) {
+      if (!text) elements.toastRegion.classList.remove("is-visible");
+      return;
+    }
     elements.toastRegion.textContent = text;
     elements.toastRegion.classList.add("is-visible");
     window.clearTimeout(state.toastTimer);
@@ -94,9 +107,26 @@
     elements.notifyPosition.value = state.notificationSettings.position;
   }
 
-  async function saveNotificationSettings() {
-    await invoke("save_notification_settings", { settings: toNativeNotificationSettings(state.notificationSettings) });
-    elements.settingsNote.textContent = "通知设置已保存在本机。";
+  function syncNotificationControls() {
+    elements.notifyInApp.checked = state.notificationSettings.inApp;
+    elements.notifyDesktop.checked = state.notificationSettings.desktop;
+    elements.notifySensitive.checked = state.notificationSettings.sensitive;
+    elements.notifyPosition.value = state.notificationSettings.position;
+  }
+
+  async function saveNotificationSettings(previousSettings) {
+    const requestId = ++state.settingsSaveRequest;
+    elements.settingsNote.textContent = "正在保存通知设置…";
+    try {
+      await invoke("save_notification_settings", { settings: toNativeNotificationSettings(state.notificationSettings) });
+      if (requestId === state.settingsSaveRequest) elements.settingsNote.textContent = "通知设置已保存在本机。";
+    } catch (error) {
+      if (requestId !== state.settingsSaveRequest) return;
+      state.notificationSettings = previousSettings;
+      syncNotificationControls();
+      elements.settingsNote.textContent = "保存失败，已恢复上次设置。";
+      setMessage(String(error));
+    }
   }
 
   function requireTauri() {
@@ -222,6 +252,7 @@
     state.resultText = text;
     elements.resultPreview.textContent = text || "还没有处理结果。";
     if (snapshot.kind === "empty") {
+      if (automatic) setMonitorStatus("listening", "自动监听中", "剪贴板当前为空，复制内容后会自动捕获");
       if (!automatic) {
         state.selectedId = null;
         state.selectedEntry = entry;
@@ -237,8 +268,11 @@
     }
     if (snapshot.sensitivity === "sensitive") {
       showTransientEntry(entry);
-      const message = automatic ? "已捕获敏感内容，仅临时使用，不会写入普通历史。" : "检测到疑似敏感内容，本次仅临时使用，不会写入普通历史。";
-      setMessage(message);
+      if (automatic) {
+        setMonitorStatus("captured", "刚刚捕获敏感内容", "未写入普通历史，退出应用后清除");
+      } else {
+        setMessage("检测到疑似敏感内容，本次仅临时使用，不会写入普通历史。");
+      }
       return;
     }
     const existing = state.entries.find((item) => item.text === text);
@@ -250,8 +284,12 @@
     elements.feedCaption.textContent = "复制内容后会自动保存到本地历史";
     selectEntry(storedEntry.id);
     await saveHistory();
-    const message = automatic ? `已自动捕获：${storedEntry.title}` : "已读取并保存到本地历史。";
-    setMessage(message);
+    if (automatic) {
+      setMonitorStatus("captured", "刚刚捕获", `${formatTime(new Date())} · 已保存到本机`);
+    } else {
+      setMonitorStatus("captured", "已读取当前剪贴板", "内容已保存到本机");
+      setMessage("已读取并保存到本地历史。");
+    }
   }
 
   async function readClipboard() {
@@ -270,12 +308,14 @@
       await handleClipboardSnapshot(snapshot, true);
     } catch (error) {
       console.warn("自动监听剪贴板失败", error);
+      setMonitorStatus("error", "监听暂不可用", "可用上方按钮读取当前剪贴板");
     } finally {
       state.isPollingClipboard = false;
     }
   }
 
   async function startClipboardMonitor() {
+    setMonitorStatus("starting", "正在启动监听", "正在连接系统剪贴板");
     if (listen) {
       await listen("clipboard-changed", ({ payload }) => {
         if (!payload || payload.kind === "other") {
@@ -287,6 +327,7 @@
         // notification feedback, so repeated copies still produce a toast.
         handleClipboardSnapshot(payload, true).catch((error) => {
           console.warn("处理剪贴板事件失败", error);
+          setMonitorStatus("error", "监听暂不可用", "可用上方按钮读取当前剪贴板");
         });
       });
     }
@@ -295,7 +336,10 @@
       state.lastClipboardText = snapshot.kind === "text" ? snapshot.text || "" : null;
     } catch (error) {
       console.warn("初始化剪贴板监听失败", error);
+      setMonitorStatus("error", "监听暂不可用", "可用上方按钮读取当前剪贴板");
+      return;
     }
+    setMonitorStatus("listening", "自动监听中", "复制内容后会自动出现在这里");
     // Native events are preferred; this catches environments where the native
     // backend cannot observe the current desktop session.
     window.setInterval(pollClipboard, listen ? 2000 : 700);
@@ -326,7 +370,7 @@
     const captions = {
       inbox: state.entries.length ? `已恢复 ${state.entries.length} 条本地历史` : "复制内容后会自动出现在这里",
       pinned: "固定的内容会在应用重启后保留",
-      sensitive: "敏感内容暂时只在当前运行期间使用",
+      sensitive: "敏感内容不会进入普通历史，退出应用后清除",
       settings: "通知设置保存在本机，并由原生监听器直接使用",
     };
     state.view = titles[view] ? view : "inbox";
@@ -337,7 +381,7 @@
     elements.feedCaption.textContent = captions[state.view];
     document.querySelectorAll(".nav-item[data-view]").forEach((item) => item.classList.toggle("is-active", item.dataset.view === view));
     renderFeed();
-    if (view === "sensitive") setMessage("敏感内容不会写入普通历史。后续会接入独立的安全存储。" );
+    if (view === "sensitive") setMessage("敏感内容不会写入普通历史；退出应用后清除当前内容。" );
     else if (view === "settings") setMessage("通知设置已加载。" );
     else setMessage("");
   }
@@ -348,20 +392,24 @@
   document.querySelectorAll(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   document.getElementById("settings-back").addEventListener("click", () => setView("inbox"));
   elements.notifyInApp.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
     state.notificationSettings.inApp = elements.notifyInApp.checked;
-    saveNotificationSettings().catch((error) => setMessage(String(error)));
+    saveNotificationSettings(previousSettings);
   });
   elements.notifyDesktop.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
     state.notificationSettings.desktop = elements.notifyDesktop.checked;
-    saveNotificationSettings().catch((error) => setMessage(String(error)));
+    saveNotificationSettings(previousSettings);
   });
   elements.notifySensitive.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
     state.notificationSettings.sensitive = elements.notifySensitive.checked;
-    saveNotificationSettings().catch((error) => setMessage(String(error)));
+    saveNotificationSettings(previousSettings);
   });
   elements.notifyPosition.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
     state.notificationSettings.position = elements.notifyPosition.value;
-    saveNotificationSettings().catch((error) => setMessage(String(error)));
+    saveNotificationSettings(previousSettings);
   });
   elements.searchInput.addEventListener("input", renderFeed);
   document.addEventListener("keydown", (event) => {

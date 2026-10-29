@@ -21,7 +21,10 @@
           <button class="nav-item" data-view="sensitive" type="button"><span class="nav-symbol" aria-hidden="true">◇</span><span>敏感内容</span></button>
         </nav>
         <div class="sidebar-footer">
-          <div class="local-status"><span></span>仅保存在本机</div>
+          <div class="local-status" id="monitor-status" data-state="starting">
+            <span aria-hidden="true"></span>
+            <div><strong id="monitor-status-label">正在启动监听</strong><small id="monitor-status-detail">复制内容后会自动出现在这里</small></div>
+          </div>
           <button class="nav-item secondary-nav" data-view="settings" type="button"><span class="nav-symbol" aria-hidden="true">⚙</span><span>设置</span></button>
         </div>
       </aside>
@@ -31,7 +34,7 @@
           <div><p class="overline">本地剪贴板工作区</p><h1 id="view-title">收件箱</h1></div>
           <div class="header-actions">
             <label class="search-box"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="搜索本地内容" autocomplete="off" /><kbd>⌘ K</kbd></label>
-            <button class="read-button" id="read-button" type="button"><span aria-hidden="true">↻</span>立即检查</button>
+            <button class="read-button" id="read-button" type="button"><span aria-hidden="true">↻</span>读取当前剪贴板</button>
           </div>
         </header>
 
@@ -45,8 +48,8 @@
               <div class="empty-feed" id="empty-feed">
                 <div class="empty-mark" aria-hidden="true">＋</div>
                 <strong>还没有内容</strong>
-                <p>复制一段文本后，妙夹会自动识别它的类型并保存到本地。</p>
-                <button class="empty-action" id="empty-read-button" type="button">立即检查剪贴板</button>
+                <p>自动监听已经开启。复制一段文本后，它会自动识别类型并保存到本地。</p>
+                <button class="empty-action" id="empty-read-button" type="button">读取当前剪贴板</button>
               </div>
             </div>
           </section>
@@ -86,6 +89,6 @@
       </main>
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <script src="main.js?v=5"></script>
+    <script src="main.js?v=7"></script>
   </body>
 </html>
