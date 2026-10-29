@@ -9,6 +9,7 @@
   let hideTimer = 0;
   let hideWindowTimer = 0;
   let generation = 0;
+  let currentEntryId = null;
 
   function hideWindow(fadeMs) {
     const current = ++generation;
@@ -22,11 +23,16 @@
 
   if (!listen) return;
 
+  root.addEventListener("click", () => {
+    if (currentEntryId) invoke?.("open_clipboard_entry", { entryId: currentEntryId }).catch(() => {});
+  });
+
   listen("clipboard-changed", async ({ payload }) => {
     const next = payload?.toast;
     if (!next) return;
-    const durationMs = Math.max(500, Number(next.duration_ms) || 2600);
+    const durationMs = Math.max(1000, Number(next.duration_ms) || 3000);
     const fadeMs = Math.max(0, Number(next.fade_ms) || 180);
+    currentEntryId = next.entry_id || null;
     generation += 1;
     window.clearTimeout(hideTimer);
     window.clearTimeout(hideWindowTimer);

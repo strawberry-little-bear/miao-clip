@@ -9,17 +9,26 @@
     entries: [],
     selectedId: null,
     selectedEntry: null,
+    revealedEntryId: null,
     view: "inbox",
     lastClipboardText: null,
     isPollingClipboard: false,
     settingsSaveRequest: 0,
+    pendingOpenEntryId: null,
+    captureState: {
+      paused: false,
+      privacyMode: false,
+    },
+    skipNextClipboard: false,
     notificationSettings: {
       inApp: true,
       desktop: true,
-      sensitive: false,
+      sensitive: true,
       position: "bottom-right",
+      durationMs: 3000,
     },
     toastTimer: null,
+    revealTimer: null,
   };
   const elements = {
     viewTitle: document.getElementById("view-title"),
@@ -36,7 +45,7 @@
     resultPreview: document.getElementById("result-preview"),
     message: document.getElementById("message"),
     toastRegion: document.getElementById("toast-region"),
-    monitorStatus: document.getElementById("monitor-status"),
+    monitorStatus: document.getElementById("monitor-toggle"),
     monitorStatusLabel: document.getElementById("monitor-status-label"),
     monitorStatusDetail: document.getElementById("monitor-status-detail"),
     settingsPanel: document.getElementById("settings-panel"),
@@ -44,13 +53,85 @@
     notifyDesktop: document.getElementById("notify-desktop"),
     notifySensitive: document.getElementById("notify-sensitive"),
     notifyPosition: document.getElementById("notify-position"),
+    notifyDuration: document.getElementById("notify-duration"),
+    privacyMode: document.getElementById("privacy-mode"),
+    monitorToggle: document.getElementById("monitor-toggle"),
     settingsNote: document.getElementById("settings-note"),
+    launchAtLogin: document.getElementById("launch-at-login"),
+    protectedControls: document.getElementById("protected-controls"),
+    revealProtected: document.getElementById("reveal-protected"),
+    copyProtected: document.getElementById("copy-protected"),
+    categoryFilter: document.getElementById("category-filter"),
+    timeFilter: document.getElementById("time-filter"),
+    dateFrom: document.getElementById("date-from"),
+    dateTo: document.getElementById("date-to"),
   };
 
   function setMonitorStatus(status, label, detail) {
+    if (state.captureState.privacyMode || state.captureState.paused) {
+      renderCaptureStatus();
+      return;
+    }
     elements.monitorStatus.dataset.state = status;
     elements.monitorStatusLabel.textContent = label;
     elements.monitorStatusDetail.textContent = detail;
+  }
+
+  function renderCaptureStatus() {
+    const { paused, privacyMode } = state.captureState;
+    if (privacyMode) {
+      elements.monitorStatus.dataset.state = "privacy";
+      elements.monitorStatusLabel.textContent = "隐私模式";
+      elements.monitorStatusDetail.textContent = "已暂停捕获、保存和桌面通知";
+    } else if (paused) {
+      elements.monitorStatus.dataset.state = "paused";
+      elements.monitorStatusLabel.textContent = "已暂停监听";
+      elements.monitorStatusDetail.textContent = "点击这里恢复自动监听";
+    } else {
+      elements.monitorStatus.dataset.state = "listening";
+      elements.monitorStatusLabel.textContent = "正在监听";
+      elements.monitorStatusDetail.textContent = "复制内容后会自动保存到本地历史";
+    }
+    elements.monitorToggle.setAttribute("aria-pressed", String(!paused && !privacyMode));
+    elements.monitorToggle.title = privacyMode ? "退出隐私模式并恢复监听" : paused ? "恢复自动监听" : "暂停自动监听";
+  }
+
+  async function loadCaptureState() {
+    try {
+      const captureState = await invoke("get_capture_state");
+      state.captureState = {
+        paused: Boolean(captureState?.paused),
+        privacyMode: Boolean(captureState?.privacy_mode ?? captureState?.privacyMode),
+      };
+    } catch (error) {
+      console.warn("读取监听状态失败", error);
+    }
+    elements.privacyMode.checked = state.captureState.privacyMode;
+    renderCaptureStatus();
+  }
+
+  async function saveCaptureState(nextState) {
+    const previousState = { ...state.captureState };
+    state.captureState = { ...state.captureState, ...nextState };
+    renderCaptureStatus();
+    elements.privacyMode.checked = state.captureState.privacyMode;
+    try {
+      await invoke("set_capture_state", {
+        paused: state.captureState.paused,
+        privacyMode: state.captureState.privacyMode,
+      });
+      state.skipNextClipboard = true;
+      setMessage(state.captureState.privacyMode
+        ? "隐私模式已开启，不会捕获、保存或通知新的剪贴板内容。"
+        : state.captureState.paused
+          ? "自动监听已暂停。"
+          : "自动监听已恢复。", { toast: true });
+    } catch (error) {
+      state.captureState = previousState;
+      renderCaptureStatus();
+      elements.privacyMode.checked = previousState.privacyMode;
+      setMessage(String(error));
+    }
   }
 
   function setMessage(text = "", { toast = true } = {}) {
@@ -62,15 +143,22 @@
     elements.toastRegion.textContent = text;
     elements.toastRegion.classList.add("is-visible");
     window.clearTimeout(state.toastTimer);
-    state.toastTimer = window.setTimeout(() => elements.toastRegion.classList.remove("is-visible"), 4200);
+    const durationMs = Math.max(1000, Number(state.notificationSettings.durationMs) || 3000);
+    state.toastTimer = window.setTimeout(() => elements.toastRegion.classList.remove("is-visible"), durationMs);
+  }
+
+  function normalizeNotificationDuration(value) {
+    const durationMs = Number(value);
+    return Number.isFinite(durationMs) ? Math.min(30000, Math.max(1000, durationMs)) : 3000;
   }
 
   function fromNativeNotificationSettings(settings = {}) {
     return {
       inApp: settings.in_app ?? settings.inApp ?? true,
       desktop: settings.desktop ?? true,
-      sensitive: settings.sensitive ?? false,
+      sensitive: settings.sensitive ?? true,
       position: settings.position || "bottom-right",
+      durationMs: normalizeNotificationDuration(settings.duration_ms ?? settings.durationMs),
     };
   }
 
@@ -80,6 +168,7 @@
       desktop: Boolean(settings.desktop),
       sensitive: Boolean(settings.sensitive),
       position: settings.position,
+      duration_ms: normalizeNotificationDuration(settings.durationMs),
     };
   }
 
@@ -105,6 +194,13 @@
     elements.notifyDesktop.checked = state.notificationSettings.desktop;
     elements.notifySensitive.checked = state.notificationSettings.sensitive;
     elements.notifyPosition.value = state.notificationSettings.position;
+    elements.notifyDuration.value = String(state.notificationSettings.durationMs);
+    try {
+      elements.launchAtLogin.checked = await invoke("is_autostart_enabled");
+    } catch (error) {
+      elements.launchAtLogin.checked = false;
+      console.warn("读取开机启动设置失败", error);
+    }
   }
 
   function syncNotificationControls() {
@@ -112,6 +208,7 @@
     elements.notifyDesktop.checked = state.notificationSettings.desktop;
     elements.notifySensitive.checked = state.notificationSettings.sensitive;
     elements.notifyPosition.value = state.notificationSettings.position;
+    elements.notifyDuration.value = String(state.notificationSettings.durationMs);
   }
 
   async function saveNotificationSettings(previousSettings) {
@@ -133,16 +230,66 @@
     if (!invoke) throw new Error("Tauri API 不可用，请通过 cargo tauri dev 启动。\n");
   }
 
-  function makeEntry(text, time = new Date().toISOString()) {
+  function makeEntry(text, time = new Date().toISOString(), id = null, sensitivity = "normal") {
     const firstLine = text.split(/\r?\n/, 1)[0].trim();
+    const category = classifyText(text, sensitivity);
     return {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      id: id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       text,
-      title: firstLine || "空文本",
+      title: titleForCategory(category, firstLine),
       kind: text.trim().startsWith("{") || text.trim().startsWith("[") ? "JSON" : "文本",
+      category,
       time,
+      source_app: "未知应用",
       pinned: false,
     };
+  }
+
+  function classifyText(text, sensitivity = "normal") {
+    const value = text.trim();
+    const lower = value.toLowerCase();
+    if (sensitivity === "sensitive" || /(?:password|passwd|api[_-]?key|token|secret|private[_-]?key)\s*[:=]/i.test(value) || /^(?:ghp|github_pat|sk-|xox[baprs]-)[a-z0-9_-]+$/i.test(value)) return "password";
+    if (/^(?:https?|ftp):\/\/\S+$/i.test(value) || /^www\.\S+$/i.test(value)) return "url";
+    if (/^(?:username|user|account|账号|用户名)\s*[:=]/i.test(value) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return "account";
+    if (lower.startsWith("mailto:")) return "account";
+    return "text";
+  }
+
+  function titleForCategory(category, firstLine) {
+    if (category === "password") return "密码信息";
+    if (category === "url") return firstLine || "URL 地址";
+    if (category === "account") return "账号信息";
+    return firstLine || "空文本";
+  }
+
+  function categoryLabel(category) {
+    return { text: "文本", url: "URL", account: "账号", password: "密码", image: "图片", file: "文件" }[category] || "文本";
+  }
+
+  function maskedProtectedText() {
+    return "********";
+  }
+
+  function normalizeEntry(entry) {
+    const mediaCategory = entry.image_id ? "image" : Array.isArray(entry.files) ? "file" : null;
+    const detectedCategory = classifyText(entry.text || "");
+    const category = mediaCategory || (entry.category === "password" ? "password" : detectedCategory);
+    const kind = mediaCategory === "image" ? "图片" : mediaCategory === "file" ? "文件" : entry.kind;
+    return {
+      ...entry,
+      category,
+      kind,
+      time: entry.time || new Date().toISOString(),
+      source_app: entry.source_app || entry.sourceApp || "未知应用",
+      pinned: Boolean(entry.pinned),
+      title: titleForCategory(category, entry.title || ""),
+    };
+  }
+
+  function snapshotSignature(snapshot) {
+    if (snapshot.kind === "image") return `image:${snapshot.image_id}`;
+    if (snapshot.kind === "files") return `files:${JSON.stringify(snapshot.files || [])}`;
+    return `text:${snapshot.text || ""}`;
   }
 
   function formatTime(date) {
@@ -156,13 +303,102 @@
     })[character]);
   }
 
+  function isImagePath(path) {
+    return /\.(bmp|gif|jpe?g|png|tiff?|webp)$/i.test(path.split(/[?#]/, 1)[0]);
+  }
+
+  function fileNameForDisplay(path) {
+    return path.split(/[\\/]/).filter(Boolean).pop() || path;
+  }
+
+  async function renderFilePreview(path, container, entryId) {
+    const item = document.createElement("div");
+    item.className = "file-preview-item";
+
+    const fileName = document.createElement("strong");
+    fileName.className = "file-preview-name";
+    fileName.textContent = fileNameForDisplay(path);
+    fileName.title = path;
+    item.append(fileName);
+
+    if (isImagePath(path)) {
+      const image = document.createElement("img");
+      image.className = "file-preview-image";
+      image.alt = fileName.textContent || "图片文件";
+      image.hidden = true;
+      item.append(image);
+
+      const status = document.createElement("small");
+      status.className = "file-preview-status";
+      status.textContent = "正在加载图片预览…";
+      item.append(status);
+
+      const pathLabel = document.createElement("span");
+      pathLabel.className = "file-preview-path";
+      pathLabel.textContent = path;
+      pathLabel.title = path;
+      item.append(pathLabel);
+      container.append(item);
+
+      try {
+        const url = await invoke("load_file_image", { path });
+        if (state.selectedId !== entryId || !item.isConnected) return;
+        image.src = url;
+        image.hidden = false;
+        status.remove();
+      } catch (error) {
+        if (!item.isConnected) return;
+        status.textContent = `图片无法预览：${error}`;
+      }
+      return;
+    }
+
+    const pathLabel = document.createElement("span");
+    pathLabel.className = "file-preview-path";
+    pathLabel.textContent = path;
+    pathLabel.title = path;
+    item.append(pathLabel);
+    container.append(item);
+  }
+
+  function renderFilePreviews(paths, entryId) {
+    const list = document.createElement("div");
+    list.className = "file-preview-list";
+    paths.forEach((path) => renderFilePreview(path, list, entryId));
+    elements.preview.replaceChildren(list);
+  }
+
   function visibleEntries() {
     const query = elements.searchInput.value.trim().toLowerCase();
-    const viewEntries = state.view === "pinned"
-      ? state.entries.filter((entry) => entry.pinned)
-      : state.view === "inbox" ? state.entries : [];
-    if (!query) return viewEntries;
-    return viewEntries.filter((entry) => entry.text.toLowerCase().includes(query));
+    const category = elements.categoryFilter.value;
+    const baseEntries = state.view === "favorites" ? state.entries.filter((entry) => entry.pinned) : state.view === "inbox" ? state.entries : [];
+    const now = new Date();
+    let from = null;
+    let to = null;
+    if (elements.timeFilter.value === "today") {
+      from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (elements.timeFilter.value === "7d") {
+      from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (elements.timeFilter.value === "30d") {
+      from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (elements.timeFilter.value === "custom") {
+      from = elements.dateFrom.value ? new Date(`${elements.dateFrom.value}T00:00:00`) : null;
+      to = elements.dateTo.value ? new Date(`${elements.dateTo.value}T23:59:59.999`) : null;
+    }
+    return baseEntries.filter((entry) => {
+      const searchable = `${entry.text || ""} ${(entry.files || []).join(" ")} ${entry.title} ${categoryLabel(entry.category)}`.toLowerCase();
+      const time = new Date(entry.time);
+      return (!query || searchable.includes(query))
+        && (category === "all" || entry.category === category)
+        && (!from || time >= from)
+        && (!to || time <= to);
+    });
+  }
+
+  function syncDateFilters() {
+    const custom = elements.timeFilter.value === "custom";
+    elements.dateFrom.hidden = !custom;
+    elements.dateTo.hidden = !custom;
   }
 
   function renderFeed() {
@@ -172,10 +408,17 @@
     elements.feed.querySelectorAll(".feed-card").forEach((card) => card.remove());
     entries.forEach((entry) => {
       const card = document.createElement("article");
+      const protectedEntry = entry.category === "password";
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}`;
-      card.innerHTML = `<button class="feed-card-main" type="button"><span class="feed-icon">${entry.kind === "JSON" ? "{}" : "T"}</span><span><strong>${escapeHtml(entry.title)}</strong><small>${entry.kind} · ${entry.text.length} 字符</small></span><span class="feed-time">${formatTime(entry.time)}</span></button><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消固定" : "固定内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消固定" : "固定内容"}">${entry.pinned ? "★" : "☆"}</button>`;
+      const icon = entry.kind === "图片" ? "▧" : entry.kind === "文件" ? "↗" : entry.kind === "JSON" ? "{}" : entry.category === "password" ? "•" : entry.category === "url" ? "↗" : entry.category === "account" ? "@" : "T";
+      const summary = protectedEntry ? maskedProtectedText() : entry.kind === "图片"
+        ? `${entry.image_width || 0} × ${entry.image_height || 0}`
+        : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${(entry.text || "").length} 字符`;
+      card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${protectedEntry ? " is-protected" : ""}`;
+      card.innerHTML = `<button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small><small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
       card.querySelector(".feed-card-main").addEventListener("click", () => selectEntry(entry.id));
       card.querySelector(".pin-button").addEventListener("click", (event) => togglePinned(entry.id, event));
+      card.querySelector(".delete-button").addEventListener("click", (event) => deleteEntry(entry.id, event));
       elements.feed.append(card);
     });
   }
@@ -189,7 +432,7 @@
     try {
       requireTauri();
       await saveHistory();
-      setMessage(entry.pinned ? "内容已固定。" : "内容已取消固定。");
+      setMessage(entry.pinned ? "内容已加入收藏。" : "内容已取消收藏。");
     } catch (error) {
       entry.pinned = !entry.pinned;
       renderFeed();
@@ -197,36 +440,149 @@
     }
   }
 
+  async function deleteEntry(id, event) {
+    event.stopPropagation();
+    const index = state.entries.findIndex((entry) => entry.id === id);
+    if (index < 0) return;
+    const [removed] = state.entries.splice(index, 1);
+    if (state.selectedId === id) resetDetail();
+    renderFeed();
+    try {
+      requireTauri();
+      await saveHistory();
+      setMessage("这条内容已删除。");
+    } catch (error) {
+      state.entries.splice(index, 0, removed);
+      renderFeed();
+      setMessage(String(error));
+    }
+  }
+
+  function resetDetail() {
+    state.selectedId = null;
+    state.selectedEntry = null;
+    state.currentText = "";
+    state.resultText = "";
+    state.revealedEntryId = null;
+    window.clearTimeout(state.revealTimer);
+    elements.protectedControls.hidden = true;
+    elements.copyProtected.disabled = true;
+    elements.detailHeading.textContent = "尚未选择";
+    elements.contentKind.textContent = "空";
+    elements.contentLength.textContent = "0 字符";
+    elements.contentTime.textContent = "等待读取";
+    elements.preview.textContent = "读取剪贴板后，内容预览会显示在这里。";
+    elements.resultPreview.textContent = "还没有处理结果。";
+    document.querySelectorAll("[data-action]").forEach((button) => { button.disabled = true; });
+  }
+
   function selectEntry(id) {
     const entry = state.entries.find((candidate) => candidate.id === id);
     if (!entry) return;
     state.selectedId = id;
     state.selectedEntry = entry;
-    state.currentText = entry.text;
+    state.currentText = entry.text || "";
     elements.detailHeading.textContent = entry.title;
-    elements.contentKind.textContent = entry.kind;
-    elements.contentLength.textContent = `${entry.text.length} 字符`;
-    elements.contentTime.textContent = `读取于 ${formatTime(entry.time)}`;
-    elements.preview.textContent = entry.text || "（空文本）";
+    elements.contentKind.textContent = categoryLabel(entry.category);
+    elements.contentLength.textContent = entry.kind === "图片" ? `${entry.image_width} × ${entry.image_height}` : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${(entry.text || "").length} 字符`;
+    elements.contentTime.textContent = `来自：${entry.source_app || "未知应用"} · ${formatTime(entry.time)}`;
+    const protectedEntry = entry.category === "password";
+    elements.protectedControls.hidden = !protectedEntry;
+    state.revealedEntryId = protectedEntry && state.revealedEntryId === entry.id ? entry.id : null;
+    window.clearTimeout(state.revealTimer);
+    if (entry.kind === "图片" && entry.image_id) {
+      elements.preview.replaceChildren();
+      const image = document.createElement("img");
+      image.className = "detail-image";
+      image.alt = `${entry.image_width} × ${entry.image_height} 剪贴板图片`;
+      elements.preview.append(image);
+      invoke("load_history_image", { imageId: entry.image_id }).then((url) => { image.src = url; }).catch((error) => {
+        elements.preview.textContent = `图片无法读取：${error}`;
+      });
+    } else if (entry.kind === "文件") {
+      renderFilePreviews(entry.files || [], id);
+    } else if (protectedEntry) {
+      renderProtectedPreview(entry);
+    } else {
+      elements.copyProtected.disabled = true;
+      elements.preview.textContent = entry.text || "（空文本）";
+    }
+    const canProcessText = entry.category !== "password" && ["文本", "JSON"].includes(entry.kind);
+    document.querySelectorAll("[data-action]").forEach((button) => {
+      button.disabled = button.dataset.action === "copy-entry"
+        ? entry.category === "password" && state.revealedEntryId !== entry.id
+        : !canProcessText;
+    });
+    if (entry.category === "password") {
+      state.resultText = "";
+      elements.resultPreview.textContent = maskedProtectedText();
+    } else {
+      state.resultText = entry.text || "";
+      elements.resultPreview.textContent = entry.text || "还没有处理结果。";
+    }
     renderFeed();
   }
 
-  function showTransientEntry(entry) {
-    state.selectedId = null;
-    state.selectedEntry = entry;
-    state.currentText = entry.text;
-    elements.detailHeading.textContent = entry.title;
-    elements.contentKind.textContent = "敏感内容";
-    elements.contentLength.textContent = `${entry.text.length} 字符`;
-    elements.contentTime.textContent = "仅本次使用，不写入普通历史";
-    elements.preview.textContent = entry.text || "（空文本）";
-    renderFeed();
+  function focusCapturedEntry(id) {
+    const entry = state.entries.find((candidate) => candidate.id === id);
+    if (entry) {
+      state.pendingOpenEntryId = null;
+      selectEntry(id);
+      return true;
+    }
+    if (state.selectedEntry?.id === id) {
+      state.pendingOpenEntryId = null;
+      return true;
+    }
+    state.pendingOpenEntryId = id;
+    return false;
+  }
+
+  function renderProtectedPreview(entry) {
+    const revealed = state.revealedEntryId === entry.id;
+    const previewText = revealed ? (entry.text || "（空文本）") : maskedProtectedText();
+    elements.preview.textContent = previewText;
+    elements.resultPreview.textContent = previewText;
+    elements.copyProtected.disabled = !revealed;
+    const copyEntryButton = document.querySelector('[data-action="copy-entry"]');
+    if (copyEntryButton) copyEntryButton.disabled = !revealed;
+    elements.revealProtected.querySelector(".reveal-label").textContent = revealed ? "隐藏原文" : "显示原文";
+    elements.revealProtected.setAttribute("aria-label", revealed ? "隐藏密码原文" : "显示密码原文");
+    elements.revealProtected.setAttribute("aria-pressed", String(revealed));
+  }
+
+  function revealProtectedEntry() {
+    const entry = state.entries.find((candidate) => candidate.id === state.selectedId && candidate.category === "password");
+    if (!entry) return;
+    state.revealedEntryId = state.revealedEntryId === entry.id ? null : entry.id;
+    window.clearTimeout(state.revealTimer);
+    if (state.revealedEntryId) {
+      state.revealTimer = window.setTimeout(() => {
+        state.revealedEntryId = null;
+        if (state.selectedId === entry.id) renderProtectedPreview(entry);
+      }, 15000);
+    }
+    renderProtectedPreview(entry);
+  }
+
+  async function copyProtectedEntry() {
+    try {
+      requireTauri();
+      const entry = state.entries.find((candidate) => candidate.id === state.selectedId && candidate.category === "password");
+      if (!entry || state.revealedEntryId !== entry.id) {
+        throw new Error("请先点击“显示原文”。");
+      }
+      await invoke("write_clipboard", { text: entry.text || "" });
+      setMessage("密码原文已复制到系统剪贴板。");
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function loadHistory() {
     requireTauri();
     const entries = await invoke("load_history");
-    state.entries = entries.map((entry) => ({ ...entry, time: entry.time || new Date().toISOString(), pinned: Boolean(entry.pinned) }));
+    state.entries = entries.map(normalizeEntry);
     elements.feedCaption.textContent = state.entries.length
       ? `已恢复 ${state.entries.length} 条本地历史`
       : "复制内容后会自动出现在这里";
@@ -234,25 +590,38 @@
   }
 
   async function saveHistory() {
-    const result = await invoke("save_history", { entries: state.entries });
-    if (result.skipped_sensitive > 0) {
-      setMessage("检测到敏感内容，未写入普通历史。");
-    }
+    await invoke("save_history", { entries: state.entries });
   }
 
   async function handleClipboardSnapshot(snapshot, automatic = false) {
+    if (automatic && (state.captureState.paused || state.captureState.privacyMode)) return;
     if (snapshot.kind === "other") {
       if (!automatic) setMessage(snapshot.preview);
       return;
     }
     const text = snapshot.text || "";
-    state.lastClipboardText = text;
-    const entry = makeEntry(text);
+    state.lastClipboardText = snapshotSignature(snapshot);
+    const kind = snapshot.kind === "image" ? "图片" : snapshot.kind === "files" ? "文件" : null;
+    const entry = kind ? {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      text,
+      title: kind === "图片" ? `剪贴板图片 ${snapshot.image_width} × ${snapshot.image_height}` : (snapshot.files || []).map(fileNameForDisplay).join("、"),
+      kind,
+      category: kind === "图片" ? "image" : "file",
+      time: new Date().toISOString(),
+      source_app: snapshot.source_app || snapshot.sourceApp || "未知应用",
+      pinned: false,
+      image_id: snapshot.image_id || null,
+      image_width: snapshot.image_width || null,
+      image_height: snapshot.image_height || null,
+      files: snapshot.files || null,
+    } : { ...makeEntry(text, new Date().toISOString(), snapshot.entry_id, snapshot.sensitivity), source_app: snapshot.source_app || snapshot.sourceApp || "未知应用" };
+    if (kind) entry.id = snapshot.entry_id || entry.id;
     state.currentText = text;
-    state.resultText = text;
-    elements.resultPreview.textContent = text || "还没有处理结果。";
+    state.resultText = entry.category === "password" ? "" : text;
+    elements.resultPreview.textContent = entry.category === "password" ? maskedProtectedText() : text || "还没有处理结果。";
     if (snapshot.kind === "empty") {
-      if (automatic) setMonitorStatus("listening", "自动监听中", "剪贴板当前为空，复制内容后会自动捕获");
+      if (automatic) setMonitorStatus("listening", "自动监听中", "剪贴板当前为空，复制内容后会自动出现在这里");
       if (!automatic) {
         state.selectedId = null;
         state.selectedEntry = entry;
@@ -260,32 +629,29 @@
         elements.contentKind.textContent = "空";
         elements.contentLength.textContent = "0 字符";
         elements.contentTime.textContent = "未写入本地历史";
+        elements.protectedControls.hidden = true;
         elements.preview.textContent = "（空文本）";
         renderFeed();
         setMessage("剪贴板当前为空，未新增历史。");
       }
       return;
     }
-    if (snapshot.sensitivity === "sensitive") {
-      showTransientEntry(entry);
-      if (automatic) {
-        setMonitorStatus("captured", "刚刚捕获敏感内容", "未写入普通历史，退出应用后清除");
-      } else {
-        setMessage("检测到疑似敏感内容，本次仅临时使用，不会写入普通历史。");
-      }
-      return;
-    }
-    const existing = state.entries.find((item) => item.text === text);
+    const sameContent = (item) => kind === "图片"
+      ? item.image_id === entry.image_id
+      : kind === "文件" ? JSON.stringify(item.files || []) === JSON.stringify(entry.files || [])
+        : !item.image_id && !item.files && item.text === text;
+    const existing = state.entries.find(sameContent);
     const storedEntry = existing
-      ? { ...existing, time: new Date().toISOString() }
+      ? { ...existing, ...entry, id: entry.id, time: new Date().toISOString(), pinned: existing.pinned }
       : entry;
-    state.entries = [storedEntry, ...state.entries.filter((item) => item.text !== text)].slice(0, 100);
+    state.entries = [storedEntry, ...state.entries.filter((item) => !sameContent(item))].slice(0, 100);
     state.selectedId = storedEntry.id;
     elements.feedCaption.textContent = "复制内容后会自动保存到本地历史";
     selectEntry(storedEntry.id);
     await saveHistory();
+    if (state.pendingOpenEntryId === storedEntry.id) focusCapturedEntry(storedEntry.id);
     if (automatic) {
-      setMonitorStatus("captured", "刚刚捕获", `${formatTime(new Date())} · 已保存到本机`);
+      setMonitorStatus("captured", "刚刚复制", `${formatTime(new Date())} · 已保存到本机`);
     } else {
       setMonitorStatus("captured", "已读取当前剪贴板", "内容已保存到本机");
       setMessage("已读取并保存到本地历史。");
@@ -294,17 +660,57 @@
 
   async function readClipboard() {
     requireTauri();
+    if (state.captureState.privacyMode) {
+      setMessage("隐私模式已开启，暂不读取当前剪贴板。", { toast: true });
+      return;
+    }
     const snapshot = await invoke("read_clipboard");
     await handleClipboardSnapshot(snapshot);
   }
 
+  async function copySelectedEntry() {
+    const entry = state.selectedEntry;
+    if (!entry) throw new Error("请先选择一条记录。");
+
+    if (entry.kind === "图片") {
+      if (!entry.image_id) throw new Error("这条图片记录缺少本地图片数据。");
+      await invoke("write_history_image_clipboard", { imageId: entry.image_id });
+      setMessage(`已复制一张图片：${entry.image_width || 0} × ${entry.image_height || 0}`);
+      return;
+    }
+
+    if (entry.kind === "文件") {
+      const files = Array.isArray(entry.files) ? entry.files : [];
+      await invoke("write_files_clipboard", { files });
+      const names = files.map(fileNameForDisplay).join("、");
+      setMessage(files.length === 1 ? `已复制文件：${names}` : `已复制 ${files.length} 个文件：${names}`);
+      return;
+    }
+
+    if (entry.category === "password") {
+      if (state.revealedEntryId !== entry.id) throw new Error("请先点击“显示原文”，再复制密码。");
+      await invoke("write_clipboard", { text: entry.text || "" });
+      setMessage("密码原文已复制到系统剪贴板。");
+      return;
+    }
+
+    await invoke("write_clipboard", { text: entry.text || "" });
+    setMessage("内容已复制到系统剪贴板。");
+  }
+
   async function pollClipboard() {
-    if (!invoke || state.isPollingClipboard) return;
+    if (!invoke || state.isPollingClipboard || state.captureState.paused || state.captureState.privacyMode) return;
     state.isPollingClipboard = true;
     try {
       const snapshot = await invoke("read_clipboard");
-      const text = snapshot.text || "";
-      if (snapshot.kind === "other" || text === state.lastClipboardText) return;
+      const signature = snapshotSignature(snapshot);
+      if (snapshot.kind === "other" || signature === state.lastClipboardText) return;
+      if (state.skipNextClipboard) {
+        state.lastClipboardText = signature;
+        state.skipNextClipboard = false;
+        return;
+      }
+      state.lastClipboardText = signature;
       await handleClipboardSnapshot(snapshot, true);
     } catch (error) {
       console.warn("自动监听剪贴板失败", error);
@@ -315,11 +721,20 @@
   }
 
   async function startClipboardMonitor() {
-    setMonitorStatus("starting", "正在启动监听", "正在连接系统剪贴板");
+    renderCaptureStatus();
     if (listen) {
+      await listen("open-clipboard-entry", ({ payload }) => {
+        if (typeof payload === "string") focusCapturedEntry(payload);
+      });
       await listen("clipboard-changed", ({ payload }) => {
+        if (state.captureState.paused || state.captureState.privacyMode) return;
         if (!payload || payload.kind === "other") {
           pollClipboard();
+          return;
+        }
+        if (state.skipNextClipboard) {
+          state.lastClipboardText = snapshotSignature(payload);
+          state.skipNextClipboard = false;
           return;
         }
         // A native change event means the user copied again, even when the
@@ -333,13 +748,13 @@
     }
     try {
       const snapshot = await invoke("read_clipboard");
-      state.lastClipboardText = snapshot.kind === "text" ? snapshot.text || "" : null;
+      state.lastClipboardText = snapshot.kind === "other" ? null : snapshotSignature(snapshot);
     } catch (error) {
       console.warn("初始化剪贴板监听失败", error);
       setMonitorStatus("error", "监听暂不可用", "可用上方按钮读取当前剪贴板");
       return;
     }
-    setMonitorStatus("listening", "自动监听中", "复制内容后会自动出现在这里");
+    renderCaptureStatus();
     // Native events are preferred; this catches environments where the native
     // backend cannot observe the current desktop session.
     window.setInterval(pollClipboard, listen ? 2000 : 700);
@@ -348,6 +763,10 @@
   async function runAction(action) {
     try {
       requireTauri();
+      if (action === "copy-entry") {
+        await copySelectedEntry();
+        return;
+      }
       if (!state.currentText) await readClipboard();
       if (!state.currentText) throw new Error("当前剪贴板没有可处理的文本。");
       if (action === "format-json") {
@@ -366,11 +785,10 @@
   }
 
   function setView(view) {
-    const titles = { inbox: "收件箱", pinned: "已固定", sensitive: "敏感内容", settings: "设置" };
+    const titles = { inbox: "收件箱", favorites: "收藏", settings: "设置" };
     const captions = {
       inbox: state.entries.length ? `已恢复 ${state.entries.length} 条本地历史` : "复制内容后会自动出现在这里",
-      pinned: "固定的内容会在应用重启后保留",
-      sensitive: "敏感内容不会进入普通历史，退出应用后清除",
+      favorites: "收藏的内容会在应用重启后保留",
       settings: "通知设置保存在本机，并由原生监听器直接使用",
     };
     state.view = titles[view] ? view : "inbox";
@@ -381,8 +799,7 @@
     elements.feedCaption.textContent = captions[state.view];
     document.querySelectorAll(".nav-item[data-view]").forEach((item) => item.classList.toggle("is-active", item.dataset.view === view));
     renderFeed();
-    if (view === "sensitive") setMessage("敏感内容不会写入普通历史；退出应用后清除当前内容。" );
-    else if (view === "settings") setMessage("通知设置已加载。" );
+    if (view === "settings") setMessage("通知设置已加载。" );
     else setMessage("");
   }
 
@@ -391,6 +808,11 @@
   document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => runAction(button.dataset.action)));
   document.querySelectorAll(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   document.getElementById("settings-back").addEventListener("click", () => setView("inbox"));
+  elements.monitorToggle.addEventListener("click", () => {
+    saveCaptureState({ paused: !state.captureState.paused, privacyMode: false });
+  });
+  elements.revealProtected.addEventListener("click", revealProtectedEntry);
+  elements.copyProtected.addEventListener("click", copyProtectedEntry);
   elements.notifyInApp.addEventListener("change", () => {
     const previousSettings = { ...state.notificationSettings };
     state.notificationSettings.inApp = elements.notifyInApp.checked;
@@ -411,7 +833,31 @@
     state.notificationSettings.position = elements.notifyPosition.value;
     saveNotificationSettings(previousSettings);
   });
+  elements.notifyDuration.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
+    state.notificationSettings.durationMs = normalizeNotificationDuration(elements.notifyDuration.value);
+    saveNotificationSettings(previousSettings);
+  });
+  elements.privacyMode.addEventListener("change", () => {
+    saveCaptureState({ privacyMode: elements.privacyMode.checked });
+  });
+  elements.launchAtLogin.addEventListener("change", async () => {
+    const enabled = elements.launchAtLogin.checked;
+    elements.launchAtLogin.disabled = true;
+    try {
+      await invoke("set_autostart_enabled", { enabled });
+      elements.settingsNote.textContent = enabled ? "妙夹将在登录时自动启动。" : "已关闭登录时自动启动。";
+    } catch (error) {
+      elements.launchAtLogin.checked = !enabled;
+      elements.settingsNote.textContent = `开机启动设置失败：${error}`;
+    } finally {
+      elements.launchAtLogin.disabled = false;
+    }
+  });
   elements.searchInput.addEventListener("input", renderFeed);
+  [elements.categoryFilter, elements.timeFilter, elements.dateFrom, elements.dateTo].forEach((control) => control.addEventListener("input", renderFeed));
+  elements.timeFilter.addEventListener("change", () => { syncDateFilters(); renderFeed(); });
+  syncDateFilters();
   document.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
@@ -420,9 +866,13 @@
   });
   document.getElementById("clear-session").addEventListener("click", async () => {
     state.entries = [];
+    state.revealedEntryId = null;
+    window.clearTimeout(state.revealTimer);
     state.selectedId = null;
     state.selectedEntry = null;
     state.currentText = "";
+    state.resultText = "";
+    elements.protectedControls.hidden = true;
     elements.feedCaption.textContent = "复制内容后会自动出现在这里";
     elements.detailHeading.textContent = "尚未选择";
     elements.contentKind.textContent = "空";
@@ -449,6 +899,7 @@
     renderFeed();
   } else {
     loadNotificationSettings()
+      .then(loadCaptureState)
       .then(loadHistory)
       .then(startClipboardMonitor)
       .catch((error) => setMessage(String(error)));

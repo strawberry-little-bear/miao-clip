@@ -19,6 +19,9 @@ html, body {
   align-items: center;
   gap: 12px;
   width: 100%;
+  appearance: none;
+  text-align: left;
+  cursor: pointer;
   min-height: 108px;
   padding: 17px 18px;
   border: 1px solid rgba(74, 91, 83, 0.16);

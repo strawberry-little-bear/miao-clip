@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f6f5f1" />
     <title>妙夹 · MiaoClip</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css?v=12" />
   </head>
   <body>
     <div class="app-frame">
@@ -17,14 +17,13 @@
         <div class="workspace-label">工作区</div>
         <nav class="primary-nav" aria-label="主要分区">
           <button class="nav-item is-active" data-view="inbox" type="button"><span class="nav-symbol" aria-hidden="true">▦</span><span>收件箱</span><span class="nav-count" id="inbox-count">0</span></button>
-          <button class="nav-item" data-view="pinned" type="button"><span class="nav-symbol" aria-hidden="true">☆</span><span>已固定</span></button>
-          <button class="nav-item" data-view="sensitive" type="button"><span class="nav-symbol" aria-hidden="true">◇</span><span>敏感内容</span></button>
+          <button class="nav-item" data-view="favorites" type="button"><span class="nav-symbol" aria-hidden="true">☆</span><span>收藏</span></button>
         </nav>
         <div class="sidebar-footer">
-          <div class="local-status" id="monitor-status" data-state="starting">
+          <button class="local-status" id="monitor-toggle" data-state="starting" type="button" aria-pressed="true" title="暂停自动监听">
             <span aria-hidden="true"></span>
             <div><strong id="monitor-status-label">正在启动监听</strong><small id="monitor-status-detail">复制内容后会自动出现在这里</small></div>
-          </div>
+          </button>
           <button class="nav-item secondary-nav" data-view="settings" type="button"><span class="nav-symbol" aria-hidden="true">⚙</span><span>设置</span></button>
         </div>
       </aside>
@@ -44,6 +43,12 @@
               <div><h2 id="feed-heading">最近内容</h2><p id="feed-caption">复制内容后会自动出现在这里</p></div>
               <button class="quiet-button" id="clear-session" type="button">清空历史</button>
             </div>
+            <div class="filter-bar" aria-label="筛选内容">
+              <select id="category-filter" aria-label="按类型筛选"><option value="all">全部类型</option><option value="text">文本</option><option value="url">URL</option><option value="account">账号</option><option value="password">密码</option><option value="image">图片</option><option value="file">文件</option></select>
+              <select id="time-filter" aria-label="按时间筛选"><option value="all">全部时间</option><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="custom">自定义</option></select>
+              <input id="date-from" type="date" aria-label="开始日期" hidden />
+              <input id="date-to" type="date" aria-label="结束日期" hidden />
+            </div>
             <div class="feed" id="feed">
               <div class="empty-feed" id="empty-feed">
                 <div class="empty-mark" aria-hidden="true">＋</div>
@@ -60,8 +65,16 @@
               <span class="type-badge" id="content-kind">空</span>
             </div>
             <div class="detail-preview" id="clipboard-preview">读取剪贴板后，内容预览会显示在这里。</div>
+            <div class="protected-controls" id="protected-controls" hidden>
+              <span>密码类内容会持久化保存，但默认遮罩原文。</span>
+              <div class="protected-actions">
+                <button class="quiet-button reveal-button" id="reveal-protected" type="button" aria-label="显示密码原文" aria-pressed="false"><span class="eye-glyph" aria-hidden="true"></span><span class="reveal-label">显示原文</span></button>
+                <button class="quiet-button copy-protected-button" id="copy-protected" type="button" disabled>复制原文</button>
+              </div>
+            </div>
             <div class="detail-meta"><span id="content-length">0 字符</span><span id="content-time">等待读取</span></div>
             <div class="detail-actions">
+              <button class="action-tile" data-action="copy-entry" type="button"><span class="tile-icon">↗</span><span><strong>复制内容</strong><small>写回系统剪贴板</small></span></button>
               <button class="action-tile" data-action="format-json" type="button"><span class="tile-icon">{ }</span><span><strong>格式化 JSON</strong><small>整理结构并生成结果</small></span></button>
               <button class="action-tile" data-action="clean-text" type="button"><span class="tile-icon">Aa</span><span><strong>清洁文本</strong><small>移除多余空白和换行</small></span></button>
               <button class="action-tile" data-action="copy-result" type="button"><span class="tile-icon">↗</span><span><strong>复制处理结果</strong><small>写回系统剪贴板</small></span></button>
@@ -81,14 +94,17 @@
           <div class="settings-list">
             <label class="setting-row"><span><strong>应用内提示</strong><small>在妙夹窗口右上角显示“收到新内容”的提示。</small></span><input id="notify-in-app" type="checkbox" checked /></label>
             <label class="setting-row"><span><strong>桌面浮层提示</strong><small>像收到消息一样在桌面角落弹出，不需要打开妙夹主窗口；原文不会进入系统通知中心。</small></span><input id="notify-desktop" type="checkbox" checked /></label>
-            <label class="setting-row"><span><strong>敏感内容通知</strong><small>只通知“捕获到敏感内容”，不会展示密码或 Token 原文。</small></span><input id="notify-sensitive" type="checkbox" /></label>
+            <label class="setting-row"><span><strong>密码复制提醒</strong><small>复制密码或 Token 时显示安全提醒，不展示原文。</small></span><input id="notify-sensitive" type="checkbox" checked /></label>
+            <label class="setting-row"><span><strong>登录时自动启动妙夹</strong><small>登录此账户后在后台启动妙夹，方便持续监听剪贴板；不会改变当前历史内容。</small></span><input id="launch-at-login" type="checkbox" /></label>
+            <label class="setting-row setting-row-warning"><span><strong>隐私模式</strong><small>暂停自动捕获、桌面通知和新记录写入；适合复制银行卡号、身份证或私人聊天内容，关闭妙夹后会自动恢复监听。</small></span><input id="privacy-mode" type="checkbox" /></label>
             <label class="setting-row"><span><strong>提示位置</strong><small>选择独立提示浮层出现在哪个屏幕角落。</small></span><select id="notify-position"><option value="top-left">左上角</option><option value="top-right">右上角</option><option value="bottom-left">左下角</option><option value="bottom-right" selected>右下角</option></select></label>
+            <label class="setting-row"><span><strong>提示框持续时间</strong><small>控制桌面浮层和妙夹窗口内提示显示多久，时间到后会自动消失。</small></span><select id="notify-duration"><option value="1500">1.5 秒</option><option value="2500">2.5 秒</option><option value="3000" selected>3 秒</option><option value="5000">5 秒</option><option value="8000">8 秒</option><option value="15000">15 秒</option></select></label>
           </div>
           <p class="settings-note" id="settings-note">通知设置只保存在本机。</p>
         </section>
       </main>
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <script src="main.js?v=7"></script>
+    <script src="main.js?v=12"></script>
   </body>
 </html>
