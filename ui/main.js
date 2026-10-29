@@ -648,7 +648,10 @@
     state.selectedId = storedEntry.id;
     elements.feedCaption.textContent = "复制内容后会自动保存到本地历史";
     selectEntry(storedEntry.id);
-    await saveHistory();
+    // The native watcher persists automatic captures before emitting them, so
+    // a hidden WebView can no longer be the only place that writes history.
+    // Manual reads and fallback polling still save from the UI as before.
+    if (!automatic || !snapshot.persisted) await saveHistory();
     if (state.pendingOpenEntryId === storedEntry.id) focusCapturedEntry(storedEntry.id);
     if (automatic) {
       setMonitorStatus("captured", "刚刚复制", `${formatTime(new Date())} · 已保存到本机`);

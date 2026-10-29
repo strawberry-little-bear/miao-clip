@@ -1,13 +1,14 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use arboard::{Clipboard, ImageData};
 use base64::Engine;
+use chrono::{SecondsFormat, Utc};
 use clipboard_master::{CallbackResult, ClipboardHandler, Master};
 use clipboard_rs::common::RustImage;
 use clipboard_rs::{Clipboard as ClipboardFormats, ClipboardContext, RustImageData};
@@ -44,6 +45,8 @@ struct ClipboardSnapshot {
     length: usize,
     entry_id: String,
     source_app: String,
+    #[serde(default)]
+    persisted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     image_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,6 +131,8 @@ impl Default for NotificationSettings {
 struct RuntimeState {
     notification_settings: Arc<RwLock<NotificationSettings>>,
     capture_state: Arc<RwLock<CaptureState>>,
+    history_lock: Arc<Mutex<()>>,
+    suppressed_entries: Arc<RwLock<HashMap<String, Instant>>>,
 }
 
 #[cfg(desktop)]
@@ -165,6 +170,8 @@ struct ClipboardMonitor {
     app: AppHandle,
     notification_settings: Arc<RwLock<NotificationSettings>>,
     capture_state: Arc<RwLock<CaptureState>>,
+    history_lock: Arc<Mutex<()>>,
+    suppressed_entries: Arc<RwLock<HashMap<String, Instant>>>,
 }
 
 impl ClipboardHandler for ClipboardMonitor {
@@ -181,6 +188,15 @@ impl ClipboardHandler for ClipboardMonitor {
         }
         match read_clipboard_snapshot(&self.app) {
             Ok(mut snapshot) => {
+                if consume_suppressed_entry(&self.suppressed_entries, &snapshot.entry_id) {
+                    return CallbackResult::Next;
+                }
+                if snapshot.kind != "other" && snapshot.kind != "empty" {
+                    match persist_captured_snapshot(&self.app, &snapshot, &self.history_lock) {
+                        Ok(()) => snapshot.persisted = true,
+                        Err(error) => log::warn!("后台保存剪贴板历史失败：{error}"),
+                    }
+                }
                 snapshot.toast = build_toast_payload(
                     &snapshot,
                     &self.notification_settings,
@@ -621,6 +637,119 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
     normalized
 }
 
+fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
+    let (text, title, kind, category) = match snapshot.kind {
+        "image" => (
+            String::new(),
+            format!(
+                "剪贴板图片 {} × {}",
+                snapshot.image_width.unwrap_or(0),
+                snapshot.image_height.unwrap_or(0)
+            ),
+            "图片".to_string(),
+            "image".to_string(),
+        ),
+        "files" => {
+            let files = snapshot.files.as_deref().unwrap_or_default();
+            (
+                snapshot.text.clone().unwrap_or_default(),
+                file_names(files),
+                "文件".to_string(),
+                "file".to_string(),
+            )
+        }
+        _ => {
+            let text = snapshot.text.clone().unwrap_or_default();
+            (
+                text.clone(),
+                if snapshot.sensitivity == "sensitive" {
+                    "密码信息".to_string()
+                } else {
+                    notification_title(&text)
+                },
+                "文本".to_string(),
+                if snapshot.sensitivity == "sensitive" {
+                    "password".to_string()
+                } else {
+                    "text".to_string()
+                },
+            )
+        }
+    };
+
+    HistoryEntry {
+        id: snapshot.entry_id.clone(),
+        text,
+        title,
+        kind,
+        time: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+        source_app: snapshot.source_app.clone(),
+        category,
+        pinned: false,
+        image_id: snapshot.image_id.clone(),
+        image_width: snapshot.image_width,
+        image_height: snapshot.image_height,
+        files: snapshot.files.clone(),
+    }
+}
+
+fn history_entry_matches_snapshot(entry: &HistoryEntry, snapshot: &ClipboardSnapshot) -> bool {
+    match snapshot.kind {
+        "image" => entry.image_id == snapshot.image_id,
+        "files" => entry.files == snapshot.files,
+        _ => {
+            entry.image_id.is_none()
+                && entry.files.is_none()
+                && entry.text == snapshot.text.clone().unwrap_or_default()
+        }
+    }
+}
+
+fn read_history_entries(app: &AppHandle) -> Result<Vec<HistoryEntry>, String> {
+    let path = history_path(app)?;
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("无法读取本地历史：{error}")),
+    };
+    let history: HistoryFile =
+        serde_json::from_str(&contents).map_err(|error| format!("本地历史格式无效：{error}"))?;
+    Ok(normalize_history(history.entries))
+}
+
+fn write_history_entries(app: &AppHandle, entries: &[HistoryEntry]) -> Result<(), String> {
+    let entries = normalize_history(entries.to_vec());
+    let history = HistoryFile {
+        version: 1,
+        entries: entries.clone(),
+    };
+    let contents = serde_json::to_string_pretty(&history)
+        .map_err(|error| format!("无法生成本地历史：{error}"))?;
+    let path = history_path(app)?;
+    fs::write(path, contents).map_err(|error| format!("无法保存本地历史：{error}"))?;
+    prune_images(app, &entries)
+}
+
+fn persist_captured_snapshot(
+    app: &AppHandle,
+    snapshot: &ClipboardSnapshot,
+    history_lock: &Arc<Mutex<()>>,
+) -> Result<(), String> {
+    let _guard = history_lock
+        .lock()
+        .map_err(|_| "无法锁定本地历史。".to_string())?;
+    let mut entries = read_history_entries(app)?;
+    let pinned = entries
+        .iter()
+        .find(|entry| history_entry_matches_snapshot(entry, snapshot))
+        .is_some_and(|entry| entry.pinned);
+    let mut entry = history_entry_from_snapshot(snapshot);
+    entry.pinned = pinned;
+    entries.retain(|candidate| !history_entry_matches_snapshot(candidate, snapshot));
+    entries.insert(0, entry);
+    write_history_entries(app, &entries)
+}
+
 fn migrate_image_file_entry(app: &AppHandle, entry: HistoryEntry) -> HistoryEntry {
     let Some(files) = entry.files.as_deref() else {
         return entry;
@@ -696,6 +825,7 @@ fn save_png_image_snapshot(
         length: 0,
         entry_id: format!("image-{id}"),
         source_app: default_source_app(),
+        persisted: false,
         image_id: Some(id),
         image_width: Some(width),
         image_height: Some(height),
@@ -795,6 +925,7 @@ fn read_clipboard_snapshot(app: &AppHandle) -> Result<ClipboardSnapshot, String>
                     length: files.len(),
                     entry_id: content_entry_id("files", files.join("\0").as_bytes()),
                     source_app: default_source_app(),
+                    persisted: false,
                     image_id: None,
                     image_width: None,
                     image_height: None,
@@ -827,6 +958,7 @@ fn read_clipboard_snapshot(app: &AppHandle) -> Result<ClipboardSnapshot, String>
             length: text.chars().count(),
             entry_id: content_entry_id("text", text.as_bytes()),
             source_app,
+            persisted: false,
             preview: preview(&text),
             text: Some(text),
             image_id: None,
@@ -843,6 +975,7 @@ fn read_clipboard_snapshot(app: &AppHandle) -> Result<ClipboardSnapshot, String>
             length: 0,
             entry_id: "unsupported".to_string(),
             source_app,
+            persisted: false,
             image_id: None,
             image_width: None,
             image_height: None,
@@ -897,13 +1030,55 @@ fn load_file_image(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn write_clipboard(text: String) -> Result<(), String> {
-    let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
-    clipboard.set_text(text).map_err(|error| error.to_string())
+fn mark_suppressed_entry(state: &RuntimeState, entry_id: String) -> Result<(), String> {
+    let mut entries = state
+        .suppressed_entries
+        .write()
+        .map_err(|_| "无法准备剪贴板抑制标记。".to_string())?;
+    let now = Instant::now();
+    entries.retain(|_, marked_at| now.duration_since(*marked_at) <= Duration::from_secs(5));
+    entries.insert(entry_id, now);
+    Ok(())
+}
+
+fn remove_suppressed_entry(state: &RuntimeState, entry_id: &str) {
+    if let Ok(mut entries) = state.suppressed_entries.write() {
+        entries.remove(entry_id);
+    }
+}
+
+fn consume_suppressed_entry(
+    entries: &Arc<RwLock<HashMap<String, Instant>>>,
+    entry_id: &str,
+) -> bool {
+    let Ok(mut entries) = entries.write() else {
+        return false;
+    };
+    let now = Instant::now();
+    entries.retain(|_, marked_at| now.duration_since(*marked_at) <= Duration::from_secs(5));
+    entries.remove(entry_id).is_some()
 }
 
 #[tauri::command]
-fn write_files_clipboard(files: Vec<String>) -> Result<(), String> {
+fn write_clipboard(state: State<'_, RuntimeState>, text: String) -> Result<(), String> {
+    let entry_id = content_entry_id("text", text.as_bytes());
+    mark_suppressed_entry(&state, entry_id.clone())?;
+    let mut clipboard = match Clipboard::new() {
+        Ok(clipboard) => clipboard,
+        Err(error) => {
+            remove_suppressed_entry(&state, &entry_id);
+            return Err(error.to_string());
+        }
+    };
+    if let Err(error) = clipboard.set_text(text) {
+        remove_suppressed_entry(&state, &entry_id);
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn write_files_clipboard(state: State<'_, RuntimeState>, files: Vec<String>) -> Result<(), String> {
     if files.is_empty() {
         return Err("没有可复制的文件。".to_string());
     }
@@ -911,14 +1086,28 @@ fn write_files_clipboard(files: Vec<String>) -> Result<(), String> {
         return Err(format!("文件已不存在：{}", file_name(missing)));
     }
 
-    let clipboard = ClipboardContext::new().map_err(|error| error.to_string())?;
-    clipboard
-        .set_files(files)
-        .map_err(|error| format!("无法复制文件：{error}"))
+    let entry_id = content_entry_id("files", files.join("\0").as_bytes());
+    mark_suppressed_entry(&state, entry_id.clone())?;
+    let clipboard = match ClipboardContext::new() {
+        Ok(clipboard) => clipboard,
+        Err(error) => {
+            remove_suppressed_entry(&state, &entry_id);
+            return Err(error.to_string());
+        }
+    };
+    if let Err(error) = clipboard.set_files(files) {
+        remove_suppressed_entry(&state, &entry_id);
+        return Err(format!("无法复制文件：{error}"));
+    }
+    Ok(())
 }
 
 #[tauri::command]
-fn write_history_image_clipboard(app: AppHandle, image_id: String) -> Result<(), String> {
+fn write_history_image_clipboard(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+    image_id: String,
+) -> Result<(), String> {
     if image_id.len() != 64 || !image_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("图片标识无效。".to_string());
     }
@@ -929,10 +1118,20 @@ fn write_history_image_clipboard(app: AppHandle, image_id: String) -> Result<(),
 
     let image = RustImageData::from_path(&path.to_string_lossy())
         .map_err(|error| format!("无法读取本地图片：{error}"))?;
-    let clipboard = ClipboardContext::new().map_err(|error| error.to_string())?;
-    clipboard
-        .set_image(image)
-        .map_err(|error| format!("无法复制图片：{error}"))
+    let entry_id = format!("image-{image_id}");
+    mark_suppressed_entry(&state, entry_id.clone())?;
+    let clipboard = match ClipboardContext::new() {
+        Ok(clipboard) => clipboard,
+        Err(error) => {
+            remove_suppressed_entry(&state, &entry_id);
+            return Err(error.to_string());
+        }
+    };
+    if let Err(error) = clipboard.set_image(image) {
+        remove_suppressed_entry(&state, &entry_id);
+        return Err(format!("无法复制图片：{error}"));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1086,16 +1285,15 @@ fn clean_text(text: String) -> String {
 }
 
 #[tauri::command]
-fn load_history(app: AppHandle) -> Result<Vec<HistoryEntry>, String> {
-    let path = history_path(&app)?;
-    let contents = match fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("无法读取本地历史：{error}")),
-    };
-    let history: HistoryFile =
-        serde_json::from_str(&contents).map_err(|error| format!("本地历史格式无效：{error}"))?;
-    let entries = normalize_history(history.entries)
+fn load_history(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+) -> Result<Vec<HistoryEntry>, String> {
+    let _guard = state
+        .history_lock
+        .lock()
+        .map_err(|_| "无法锁定本地历史。".to_string())?;
+    let entries = read_history_entries(&app)?
         .into_iter()
         .map(|entry| migrate_image_file_entry(&app, entry))
         .collect();
@@ -1103,24 +1301,28 @@ fn load_history(app: AppHandle) -> Result<Vec<HistoryEntry>, String> {
 }
 
 #[tauri::command]
-fn save_history(app: AppHandle, entries: Vec<HistoryEntry>) -> Result<HistorySaveResult, String> {
+fn save_history(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+    entries: Vec<HistoryEntry>,
+) -> Result<HistorySaveResult, String> {
+    let _guard = state
+        .history_lock
+        .lock()
+        .map_err(|_| "无法锁定本地历史。".to_string())?;
     let entries = normalize_history(entries);
-    let history = HistoryFile {
-        version: 1,
-        entries: entries.clone(),
-    };
-    let contents = serde_json::to_string_pretty(&history)
-        .map_err(|error| format!("无法生成本地历史：{error}"))?;
-    let path = history_path(&app)?;
-    fs::write(path, contents).map_err(|error| format!("无法保存本地历史：{error}"))?;
-    prune_images(&app, &entries)?;
+    write_history_entries(&app, &entries)?;
     Ok(HistorySaveResult {
         saved_count: entries.len(),
     })
 }
 
 #[tauri::command]
-fn clear_history(app: AppHandle) -> Result<(), String> {
+fn clear_history(app: AppHandle, state: State<'_, RuntimeState>) -> Result<(), String> {
+    let _guard = state
+        .history_lock
+        .lock()
+        .map_err(|_| "无法锁定本地历史。".to_string())?;
     let path = history_path(&app)?;
     match fs::remove_file(path) {
         Ok(()) => prune_images(&app, &[]),
@@ -1167,9 +1369,13 @@ pub fn run() {
             };
             let notification_settings = Arc::new(RwLock::new(notification_settings));
             let capture_state = Arc::new(RwLock::new(CaptureState::default()));
+            let history_lock = Arc::new(Mutex::new(()));
+            let suppressed_entries = Arc::new(RwLock::new(HashMap::new()));
             app.manage(RuntimeState {
                 notification_settings: notification_settings.clone(),
                 capture_state: capture_state.clone(),
+                history_lock: history_lock.clone(),
+                suppressed_entries: suppressed_entries.clone(),
             });
 
             #[cfg(desktop)]
@@ -1183,6 +1389,8 @@ pub fn run() {
                         app: monitor_app,
                         notification_settings,
                         capture_state,
+                        history_lock,
+                        suppressed_entries,
                     }) {
                         Ok(monitor) => monitor,
                         Err(error) => {
@@ -1400,6 +1608,7 @@ mod tests {
             length: 0,
             entry_id: "image-test".to_string(),
             source_app: "测试应用".to_string(),
+            persisted: false,
             image_id: Some("a".repeat(64)),
             image_width: Some(800),
             image_height: Some(600),
@@ -1420,6 +1629,7 @@ mod tests {
             length: 1,
             entry_id: "files-test".to_string(),
             source_app: "测试应用".to_string(),
+            persisted: false,
             image_id: None,
             image_width: None,
             image_height: None,
@@ -1447,6 +1657,7 @@ mod tests {
             length: 25,
             entry_id: "text-test".to_string(),
             source_app: "测试应用".to_string(),
+            persisted: false,
             image_id: None,
             image_width: None,
             image_height: None,
@@ -1477,6 +1688,7 @@ mod tests {
             length: 15,
             entry_id: "text-test".to_string(),
             source_app: "测试应用".to_string(),
+            persisted: false,
             image_id: None,
             image_width: None,
             image_height: None,
@@ -1498,6 +1710,7 @@ mod tests {
             length: 12,
             entry_id: "text-test".to_string(),
             source_app: "测试应用".to_string(),
+            persisted: false,
             image_id: None,
             image_width: None,
             image_height: None,
