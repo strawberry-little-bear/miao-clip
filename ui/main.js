@@ -52,38 +52,51 @@
     state.toastTimer = window.setTimeout(() => elements.toastRegion.classList.remove("is-visible"), 4200);
   }
 
-  function loadNotificationSettings() {
+  function fromNativeNotificationSettings(settings = {}) {
+    return {
+      inApp: settings.in_app ?? settings.inApp ?? true,
+      desktop: settings.desktop ?? true,
+      sensitive: settings.sensitive ?? false,
+      position: settings.position || "bottom-right",
+    };
+  }
+
+  function toNativeNotificationSettings(settings) {
+    return {
+      in_app: Boolean(settings.inApp),
+      desktop: Boolean(settings.desktop),
+      sensitive: Boolean(settings.sensitive),
+      position: settings.position,
+    };
+  }
+
+  async function loadNotificationSettings() {
+    let settings = { ...state.notificationSettings };
     try {
-      const saved = JSON.parse(window.localStorage.getItem("miao-clip-notifications-v5") || "{}");
-      state.notificationSettings = { ...state.notificationSettings, ...saved };
+      settings = { ...settings, ...fromNativeNotificationSettings(await invoke("get_notification_settings")) };
+      // Migrate the previous UI-only setting once. Rust becomes the source of
+      // truth afterward, so the toast window and the main window agree.
+      if (!window.localStorage.getItem("miao-clip-notifications-rust-v1")) {
+        const legacy = JSON.parse(window.localStorage.getItem("miao-clip-notifications-v5") || "null");
+        if (legacy && typeof legacy === "object") {
+          settings = { ...settings, ...legacy };
+          await invoke("save_notification_settings", { settings: toNativeNotificationSettings(settings) });
+        }
+        window.localStorage.setItem("miao-clip-notifications-rust-v1", "1");
+      }
     } catch (error) {
       console.warn("读取通知设置失败", error);
     }
+    state.notificationSettings = settings;
     elements.notifyInApp.checked = state.notificationSettings.inApp;
     elements.notifyDesktop.checked = state.notificationSettings.desktop;
     elements.notifySensitive.checked = state.notificationSettings.sensitive;
     elements.notifyPosition.value = state.notificationSettings.position;
   }
 
-  function saveNotificationSettings() {
-    window.localStorage.setItem("miao-clip-notifications-v5", JSON.stringify(state.notificationSettings));
+  async function saveNotificationSettings() {
+    await invoke("save_notification_settings", { settings: toNativeNotificationSettings(state.notificationSettings) });
     elements.settingsNote.textContent = "通知设置已保存在本机。";
-  }
-
-  async function notifyClipboard(title, sensitive = false) {
-    if (!state.notificationSettings.desktop || (sensitive && !state.notificationSettings.sensitive)) return;
-    try {
-      await invoke("show_clipboard_toast", {
-        request: {
-          kind: sensitive ? "敏感内容" : "新剪贴板内容",
-          message: sensitive ? "已捕获敏感内容，原文不会显示。" : `已自动捕获：${title}`,
-          position: state.notificationSettings.position,
-        },
-      });
-    } catch (error) {
-      console.warn("发送桌面通知失败", error);
-      setMessage(`桌面浮层暂不可用：${String(error)}`);
-    }
   }
 
   function requireTauri() {
@@ -226,7 +239,6 @@
       showTransientEntry(entry);
       const message = automatic ? "已捕获敏感内容，仅临时使用，不会写入普通历史。" : "检测到疑似敏感内容，本次仅临时使用，不会写入普通历史。";
       setMessage(message);
-      if (automatic) await notifyClipboard("敏感内容", true);
       return;
     }
     const existing = state.entries.find((item) => item.text === text);
@@ -237,7 +249,6 @@
     state.selectedId = storedEntry.id;
     elements.feedCaption.textContent = "复制内容后会自动保存到本地历史";
     selectEntry(storedEntry.id);
-    if (automatic) await notifyClipboard(storedEntry.title);
     await saveHistory();
     const message = automatic ? `已自动捕获：${storedEntry.title}` : "已读取并保存到本地历史。";
     setMessage(message);
@@ -316,7 +327,7 @@
       inbox: state.entries.length ? `已恢复 ${state.entries.length} 条本地历史` : "复制内容后会自动出现在这里",
       pinned: "固定的内容会在应用重启后保留",
       sensitive: "敏感内容暂时只在当前运行期间使用",
-      settings: "本地设置将在后续迭代中接入",
+      settings: "通知设置保存在本机，并由原生监听器直接使用",
     };
     state.view = titles[view] ? view : "inbox";
     const isSettings = state.view === "settings";
@@ -338,19 +349,19 @@
   document.getElementById("settings-back").addEventListener("click", () => setView("inbox"));
   elements.notifyInApp.addEventListener("change", () => {
     state.notificationSettings.inApp = elements.notifyInApp.checked;
-    saveNotificationSettings();
+    saveNotificationSettings().catch((error) => setMessage(String(error)));
   });
   elements.notifyDesktop.addEventListener("change", () => {
     state.notificationSettings.desktop = elements.notifyDesktop.checked;
-    saveNotificationSettings();
+    saveNotificationSettings().catch((error) => setMessage(String(error)));
   });
   elements.notifySensitive.addEventListener("change", () => {
     state.notificationSettings.sensitive = elements.notifySensitive.checked;
-    saveNotificationSettings();
+    saveNotificationSettings().catch((error) => setMessage(String(error)));
   });
   elements.notifyPosition.addEventListener("change", () => {
     state.notificationSettings.position = elements.notifyPosition.value;
-    saveNotificationSettings();
+    saveNotificationSettings().catch((error) => setMessage(String(error)));
   });
   elements.searchInput.addEventListener("input", renderFeed);
   document.addEventListener("keydown", (event) => {
@@ -389,8 +400,8 @@
     setMessage("当前页面不是在 Tauri 应用中运行。");
     renderFeed();
   } else {
-    loadNotificationSettings();
-    loadHistory()
+    loadNotificationSettings()
+      .then(loadHistory)
       .then(startClipboardMonitor)
       .catch((error) => setMessage(String(error)));
   }

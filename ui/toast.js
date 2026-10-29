@@ -22,8 +22,9 @@
 
   if (!listen) return;
 
-  listen("toast-show", async ({ payload }) => {
-    const next = payload || {};
+  listen("clipboard-changed", async ({ payload }) => {
+    const next = payload?.toast;
+    if (!next) return;
     const durationMs = Math.max(500, Number(next.duration_ms) || 2600);
     const fadeMs = Math.max(0, Number(next.fade_ms) || 180);
     generation += 1;
