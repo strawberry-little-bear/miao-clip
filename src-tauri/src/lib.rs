@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -38,6 +38,9 @@ const MIN_NOTIFICATION_DURATION_MS: u64 = 1_000;
 const MAX_NOTIFICATION_DURATION_MS: u64 = 30_000;
 const HISTORY_FILE_VERSION: u8 = 2;
 const KEYRING_SERVICE: &str = "miao-clip";
+const QUICK_PASTE_SHORTCUT: &str = "CommandOrControl+Shift+Space";
+
+static SENSITIVE_STORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize)]
 struct ClipboardSnapshot {
@@ -187,8 +190,8 @@ impl ClipboardHandler for ClipboardMonitor {
             return CallbackResult::Next;
         }
         // macOS may still be writing the pasteboard when changeCount changes.
-        // Match the native watcher behavior used by Ctrl-CCCC and read after a
-        // short settling period so the event already contains the new value.
+        // Read after a short settling period so the event already contains the
+        // new value.
         thread::sleep(Duration::from_millis(50));
         if capture_suspended(&self.capture_state) {
             return CallbackResult::Next;
@@ -521,19 +524,51 @@ fn sensitive_keyring_entry(secret_ref: &str) -> Result<KeyringEntry, String> {
         .map_err(|error| format!("系统安全存储不可用：{error}"))
 }
 
+fn sensitive_store_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    SENSITIVE_STORE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "无法锁定系统安全存储。".to_string())
+}
+
 fn store_sensitive_secret(secret_ref: &str, text: &str) -> Result<(), String> {
-    sensitive_keyring_entry(secret_ref)?
-        .set_password(text)
-        .map_err(|error| format!("无法写入系统安全存储：{error}"))
+    let _guard = sensitive_store_lock()?;
+    let entry = sensitive_keyring_entry(secret_ref)?;
+
+    // Reusing an existing item avoids an unnecessary Keychain write during
+    // history migration and makes repeated saves harmless.
+    if let Ok(existing) = entry.get_password() {
+        if existing == text {
+            return Ok(());
+        }
+    }
+
+    match entry.set_password(text) {
+        Ok(()) => Ok(()),
+        Err(error) if error.to_string().contains("already exists") => {
+            // A concurrent writer can win between the lookup and the write.
+            // If the item is now readable, the write has already completed.
+            match entry.get_password() {
+                Ok(existing) if existing == text => Ok(()),
+                _ => Err(format!("无法写入系统安全存储：{error}")),
+            }
+        }
+        Err(error) => Err(format!("无法写入系统安全存储：{error}")),
+    }
 }
 
 fn read_sensitive_secret(secret_ref: &str) -> Result<String, String> {
+    let _guard = sensitive_store_lock()?;
     sensitive_keyring_entry(secret_ref)?
         .get_password()
         .map_err(|error| format!("无法读取系统安全存储中的内容：{error}"))
 }
 
 fn delete_sensitive_secret(secret_ref: &str) {
+    let Ok(_guard) = sensitive_store_lock() else {
+        log::warn!("无法锁定系统安全存储，跳过敏感剪贴板内容清理");
+        return;
+    };
     match sensitive_keyring_entry(secret_ref).and_then(|entry| {
         entry
             .delete_credential()
@@ -1369,6 +1404,14 @@ fn open_clipboard_entry(app: AppHandle, entry_id: String) -> Result<(), String> 
 }
 
 #[tauri::command]
+fn hide_main_window(app: AppHandle) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不可用。".to_string())?;
+    main.hide().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn is_autostart_enabled(app: AppHandle) -> Result<bool, String> {
     use tauri_plugin_autostart::ManagerExt;
     app.autolaunch()
@@ -1546,6 +1589,31 @@ pub fn run() {
             None,
         ))
         .setup(|app| {
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{
+                    Builder as GlobalShortcutBuilder, ShortcutState,
+                };
+
+                app.handle().plugin(
+                    GlobalShortcutBuilder::new()
+                        .with_shortcut(QUICK_PASTE_SHORTCUT)?
+                        .with_handler(|app, _shortcut, event| {
+                            if event.state != ShortcutState::Pressed {
+                                return;
+                            }
+                            if let Err(error) = show_main_window(app) {
+                                log::warn!("无法打开快速粘贴窗口：{error}");
+                                return;
+                            }
+                            if let Err(error) = app.emit("quick-paste-request", ()) {
+                                log::warn!("无法通知前端进入快速粘贴：{error}");
+                            }
+                        })
+                        .build(),
+                )?;
+            }
+
             let notification_settings = match load_notification_settings(&app.handle()) {
                 Ok(settings) => settings,
                 Err(error) => {
@@ -1616,6 +1684,7 @@ pub fn run() {
             get_capture_state,
             get_notification_settings,
             hide_clipboard_toast,
+            hide_main_window,
             is_autostart_enabled,
             load_history,
             load_history_image,

@@ -33,6 +33,7 @@ log = "0.4"
 tauri = { version = "2.12.5", features = ["image-png", "macos-private-api", "tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2.4.1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

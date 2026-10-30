@@ -30,6 +30,8 @@
     },
     toastTimer: null,
     revealTimer: null,
+    quickPasteMode: false,
+    quickPasteIndex: 0,
   };
   const elements = {
     viewTitle: document.getElementById("view-title"),
@@ -433,7 +435,7 @@
     elements.inboxCount.textContent = String(state.entries.length);
     elements.emptyFeed.hidden = entries.length > 0;
     elements.feed.querySelectorAll(".feed-card").forEach((card) => card.remove());
-    entries.forEach((entry) => {
+    entries.forEach((entry, index) => {
       const card = document.createElement("article");
       const protectedEntry = entry.category === "password";
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}`;
@@ -442,12 +444,56 @@
         ? `${entry.image_width || 0} × ${entry.image_height || 0}`
         : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${(entry.text || "").length} 字符`;
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${protectedEntry ? " is-protected" : ""}`;
+      if (state.quickPasteMode && index === state.quickPasteIndex) card.classList.add("is-quick-selected");
       card.innerHTML = `<button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small><small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
       card.querySelector(".feed-card-main").addEventListener("click", () => selectEntry(entry.id));
       card.querySelector(".pin-button").addEventListener("click", (event) => togglePinned(entry.id, event));
       card.querySelector(".delete-button").addEventListener("click", (event) => deleteEntry(entry.id, event));
       elements.feed.append(card);
     });
+  }
+
+  function quickPasteEntries() {
+    return visibleEntries();
+  }
+
+  function updateQuickPasteSelection() {
+    const entries = quickPasteEntries();
+    if (!entries.length) {
+      state.quickPasteIndex = 0;
+      resetDetail();
+      renderFeed();
+      return;
+    }
+    state.quickPasteIndex = Math.min(Math.max(state.quickPasteIndex, 0), entries.length - 1);
+    selectEntry(entries[state.quickPasteIndex].id);
+    elements.feed.querySelector(".is-quick-selected")?.scrollIntoView({ block: "nearest" });
+  }
+
+  function leaveQuickPasteMode(hide = false) {
+    state.quickPasteMode = false;
+    state.quickPasteIndex = 0;
+    renderFeed();
+    if (hide && invoke) invoke("hide_main_window").catch((error) => console.warn("收起快速粘贴窗口失败", error));
+  }
+
+  function enterQuickPasteMode() {
+    state.quickPasteMode = true;
+    state.quickPasteIndex = 0;
+    if (state.view !== "inbox") setView("inbox");
+    elements.searchInput.focus();
+    elements.searchInput.select();
+    updateQuickPasteSelection();
+    setMessage("快速粘贴：↑↓选择，Enter复制，Esc收起。");
+  }
+
+  async function confirmQuickPaste() {
+    try {
+      await copySelectedEntry();
+      leaveQuickPasteMode(true);
+    } catch (error) {
+      setMessage(String(error));
+    }
   }
 
   async function togglePinned(id, event) {
@@ -794,6 +840,7 @@
       await listen("open-clipboard-entry", ({ payload }) => {
         if (typeof payload === "string") focusCapturedEntry(payload);
       });
+      await listen("quick-paste-request", () => enterQuickPasteMode());
       await listen("clipboard-changed", ({ payload }) => {
         if (state.captureState.paused || state.captureState.privacyMode) return;
         if (!payload || payload.kind === "other") {
@@ -922,11 +969,37 @@
       elements.launchAtLogin.disabled = false;
     }
   });
-  elements.searchInput.addEventListener("input", renderFeed);
+  elements.searchInput.addEventListener("input", () => {
+    renderFeed();
+    if (state.quickPasteMode) {
+      state.quickPasteIndex = 0;
+      updateQuickPasteSelection();
+    }
+  });
   [elements.categoryFilter, elements.sourceFilter, elements.timeFilter, elements.dateFrom, elements.dateTo].forEach((control) => control.addEventListener("input", renderFeed));
   elements.timeFilter.addEventListener("change", () => { syncDateFilters(); renderFeed(); });
   syncDateFilters();
   document.addEventListener("keydown", (event) => {
+    if (state.quickPasteMode) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        leaveQuickPasteMode(true);
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const entries = quickPasteEntries();
+        if (!entries.length) return;
+        state.quickPasteIndex = (state.quickPasteIndex + (event.key === "ArrowDown" ? 1 : -1) + entries.length) % entries.length;
+        updateQuickPasteSelection();
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        confirmQuickPaste();
+        return;
+      }
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
       elements.searchInput.focus();
