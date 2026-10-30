@@ -62,6 +62,7 @@
     revealProtected: document.getElementById("reveal-protected"),
     copyProtected: document.getElementById("copy-protected"),
     categoryFilter: document.getElementById("category-filter"),
+    sourceFilter: document.getElementById("source-filter"),
     timeFilter: document.getElementById("time-filter"),
     dateFrom: document.getElementById("date-from"),
     dateTo: document.getElementById("date-to"),
@@ -371,6 +372,7 @@
   function visibleEntries() {
     const query = elements.searchInput.value.trim().toLowerCase();
     const category = elements.categoryFilter.value;
+    const source = elements.sourceFilter.value;
     const baseEntries = state.view === "favorites" ? state.entries.filter((entry) => entry.pinned) : state.view === "inbox" ? state.entries : [];
     const now = new Date();
     let from = null;
@@ -386,13 +388,23 @@
       to = elements.dateTo.value ? new Date(`${elements.dateTo.value}T23:59:59.999`) : null;
     }
     return baseEntries.filter((entry) => {
-      const searchable = `${entry.text || ""} ${(entry.files || []).join(" ")} ${entry.title} ${categoryLabel(entry.category)}`.toLowerCase();
+      const searchable = `${entry.text || ""} ${(entry.files || []).join(" ")} ${entry.title} ${entry.source_app || ""} ${categoryLabel(entry.category)}`.toLowerCase();
       const time = new Date(entry.time);
       return (!query || searchable.includes(query))
         && (category === "all" || entry.category === category)
+        && (source === "all" || entry.source_app === source)
         && (!from || time >= from)
         && (!to || time <= to);
     });
+  }
+
+  function syncSourceFilter() {
+    const selectedSource = elements.sourceFilter.value;
+    const sources = [...new Set(state.entries.map((entry) => entry.source_app || "未知应用"))]
+      .sort((left, right) => left.localeCompare(right, "zh-CN"));
+    elements.sourceFilter.replaceChildren(new Option("全部来源", "all"));
+    sources.forEach((source) => elements.sourceFilter.add(new Option(source, source)));
+    elements.sourceFilter.value = sources.includes(selectedSource) ? selectedSource : "all";
   }
 
   function syncDateFilters() {
@@ -402,6 +414,7 @@
   }
 
   function renderFeed() {
+    syncSourceFilter();
     const entries = visibleEntries();
     elements.inboxCount.textContent = String(state.entries.length);
     elements.emptyFeed.hidden = entries.length > 0;
@@ -867,7 +880,7 @@
     }
   });
   elements.searchInput.addEventListener("input", renderFeed);
-  [elements.categoryFilter, elements.timeFilter, elements.dateFrom, elements.dateTo].forEach((control) => control.addEventListener("input", renderFeed));
+  [elements.categoryFilter, elements.sourceFilter, elements.timeFilter, elements.dateFrom, elements.dateTo].forEach((control) => control.addEventListener("input", renderFeed));
   elements.timeFilter.addEventListener("change", () => { syncDateFilters(); renderFeed(); });
   syncDateFilters();
   document.addEventListener("keydown", (event) => {

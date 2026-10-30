@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f6f5f1" />
     <title>妙夹 · MiaoClip</title>
-    <link rel="stylesheet" href="style.css?v=12" />
+    <link rel="stylesheet" href="style.css?v=13" />
   </head>
   <body>
     <div class="app-frame">
@@ -45,6 +45,7 @@
             </div>
             <div class="filter-bar" aria-label="筛选内容">
               <select id="category-filter" aria-label="按类型筛选"><option value="all">全部类型</option><option value="text">文本</option><option value="url">URL</option><option value="account">账号</option><option value="password">密码</option><option value="image">图片</option><option value="file">文件</option></select>
+              <select id="source-filter" aria-label="按来源应用筛选"><option value="all">全部来源</option></select>
               <select id="time-filter" aria-label="按时间筛选"><option value="all">全部时间</option><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="custom">自定义</option></select>
               <input id="date-from" type="date" aria-label="开始日期" hidden />
               <input id="date-to" type="date" aria-label="结束日期" hidden />
@@ -105,6 +106,6 @@
       </main>
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <script src="main.js?v=12"></script>
+    <script src="main.js?v=13"></script>
   </body>
 </html>

@@ -92,7 +92,7 @@ h2 { font-size: 17px; font-weight: 760; }
 .type-badge { padding: 5px 8px; border-radius: 5px; color: #44717a; background: var(--blue-soft); font-size: 10px; font-weight: 800; }
 .detail-preview { min-height: 156px; max-height: 250px; margin-top: 17px; overflow: auto; padding: 14px; border: 1px solid #ecebe5; border-radius: 6px; color: #4e5550; background: #faf9f5; font: 12px/1.7 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .filter-bar { display: flex; flex-wrap: wrap; gap: 7px; margin: 14px 0 10px; }
-.filter-bar select, .filter-bar input { min-width: 104px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--paper); font-size: 11px; }
+.filter-bar select, .filter-bar input { min-width: 104px; max-width: 100%; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--paper); font-size: 11px; }
 .filter-bar input { min-width: 126px; }
 .protected-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: #8a6d3b; font-size: 10px; line-height: 1.45; }
 .protected-controls[hidden] { display: none; }
