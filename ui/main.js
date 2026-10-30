@@ -10,6 +10,7 @@
     selectedId: null,
     selectedEntry: null,
     revealedEntryId: null,
+    revealedText: "",
     view: "inbox",
     lastClipboardText: null,
     isPollingClipboard: false,
@@ -237,6 +238,7 @@
     return {
       id: id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       text,
+      length: text.length,
       title: titleForCategory(category, firstLine),
       kind: text.trim().startsWith("{") || text.trim().startsWith("[") ? "JSON" : "文本",
       category,
@@ -283,6 +285,8 @@
       time: entry.time || new Date().toISOString(),
       source_app: entry.source_app || entry.sourceApp || "未知应用",
       pinned: Boolean(entry.pinned),
+      length: Number.isFinite(entry.length) ? entry.length : (entry.text || "").length,
+      secret_ref: entry.secret_ref || null,
       title: titleForCategory(category, entry.title || ""),
     };
   }
@@ -487,6 +491,7 @@
     state.currentText = "";
     state.resultText = "";
     state.revealedEntryId = null;
+    state.revealedText = "";
     window.clearTimeout(state.revealTimer);
     elements.protectedControls.hidden = true;
     elements.copyProtected.disabled = true;
@@ -504,14 +509,16 @@
     if (!entry) return;
     state.selectedId = id;
     state.selectedEntry = entry;
-    state.currentText = entry.text || "";
+    state.currentText = entry.category === "password" ? "" : (entry.text || "");
     elements.detailHeading.textContent = entry.title;
     elements.contentKind.textContent = categoryLabel(entry.category);
-    elements.contentLength.textContent = entry.kind === "图片" ? `${entry.image_width} × ${entry.image_height}` : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${(entry.text || "").length} 字符`;
+    elements.contentLength.textContent = entry.kind === "图片" ? `${entry.image_width} × ${entry.image_height}` : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${entry.length || 0} 字符`;
     elements.contentTime.textContent = `来自：${entry.source_app || "未知应用"} · ${formatTime(entry.time)}`;
     const protectedEntry = entry.category === "password";
     elements.protectedControls.hidden = !protectedEntry;
-    state.revealedEntryId = protectedEntry && state.revealedEntryId === entry.id ? entry.id : null;
+    const keepRevealed = protectedEntry && state.revealedEntryId === entry.id;
+    state.revealedEntryId = keepRevealed ? entry.id : null;
+    if (!keepRevealed) state.revealedText = "";
     window.clearTimeout(state.revealTimer);
     if (entry.kind === "图片" && entry.image_id) {
       elements.preview.replaceChildren();
@@ -563,7 +570,7 @@
 
   function renderProtectedPreview(entry) {
     const revealed = state.revealedEntryId === entry.id;
-    const previewText = revealed ? (entry.text || "（空文本）") : maskedProtectedText();
+    const previewText = revealed ? (state.revealedText || "（空文本）") : maskedProtectedText();
     elements.preview.textContent = previewText;
     elements.resultPreview.textContent = previewText;
     elements.copyProtected.disabled = !revealed;
@@ -574,14 +581,29 @@
     elements.revealProtected.setAttribute("aria-pressed", String(revealed));
   }
 
-  function revealProtectedEntry() {
+  async function revealProtectedEntry() {
     const entry = state.entries.find((candidate) => candidate.id === state.selectedId && candidate.category === "password");
     if (!entry) return;
-    state.revealedEntryId = state.revealedEntryId === entry.id ? null : entry.id;
+    if (state.revealedEntryId === entry.id) {
+      state.revealedEntryId = null;
+      state.revealedText = "";
+      window.clearTimeout(state.revealTimer);
+      renderProtectedPreview(entry);
+      return;
+    }
+    try {
+      requireTauri();
+      state.revealedText = await invoke("reveal_sensitive_entry", { entryId: entry.id });
+    } catch (error) {
+      setMessage(String(error));
+      return;
+    }
+    state.revealedEntryId = entry.id;
     window.clearTimeout(state.revealTimer);
     if (state.revealedEntryId) {
       state.revealTimer = window.setTimeout(() => {
         state.revealedEntryId = null;
+        state.revealedText = "";
         if (state.selectedId === entry.id) renderProtectedPreview(entry);
       }, 15000);
     }
@@ -595,7 +617,7 @@
       if (!entry || state.revealedEntryId !== entry.id) {
         throw new Error("请先点击“显示原文”。");
       }
-      await invoke("write_clipboard", { text: entry.text || "" });
+      await invoke("copy_sensitive_entry", { entryId: entry.id });
       setMessage("密码原文已复制到系统剪贴板。");
     } catch (error) {
       setMessage(String(error));
@@ -628,6 +650,7 @@
     const entry = kind ? {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       text,
+      length: snapshot.length || text.length,
       title: kind === "图片" ? `剪贴板图片 ${snapshot.image_width} × ${snapshot.image_height}` : (snapshot.files || []).map(fileNameForDisplay).join("、"),
       kind,
       category: kind === "图片" ? "image" : "file",
@@ -640,7 +663,15 @@
       files: snapshot.files || null,
     } : { ...makeEntry(text, new Date().toISOString(), snapshot.entry_id, snapshot.sensitivity), source_app: snapshot.source_app || snapshot.sourceApp || "未知应用" };
     if (kind) entry.id = snapshot.entry_id || entry.id;
-    state.currentText = text;
+    const isProtected = entry.category === "password";
+    if (isProtected && (!automatic || !snapshot.persisted)) {
+      await invoke("store_sensitive_entry", { entryId: entry.id, text });
+    }
+    if (isProtected) {
+      entry.text = "";
+      entry.secret_ref = `entry:${entry.id}`;
+    }
+    state.currentText = isProtected ? "" : text;
     state.resultText = entry.category === "password" ? "" : text;
     elements.resultPreview.textContent = entry.category === "password" ? maskedProtectedText() : text || "还没有处理结果。";
     if (snapshot.kind === "empty") {
@@ -659,7 +690,9 @@
       }
       return;
     }
-    const sameContent = (item) => kind === "图片"
+    const sameContent = (item) => entry.category === "password"
+      ? item.category === "password" && item.id === entry.id
+      : kind === "图片"
       ? item.image_id === entry.image_id
       : kind === "文件" ? JSON.stringify(item.files || []) === JSON.stringify(entry.files || [])
         : !item.image_id && !item.files && item.text === text;
@@ -715,7 +748,7 @@
 
     if (entry.category === "password") {
       if (state.revealedEntryId !== entry.id) throw new Error("请先点击“显示原文”，再复制密码。");
-      await invoke("write_clipboard", { text: entry.text || "" });
+      await invoke("copy_sensitive_entry", { entryId: entry.id });
       setMessage("密码原文已复制到系统剪贴板。");
       return;
     }

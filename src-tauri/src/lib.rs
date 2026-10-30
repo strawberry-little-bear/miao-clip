@@ -12,6 +12,7 @@ use chrono::{SecondsFormat, Utc};
 use clipboard_master::{CallbackResult, ClipboardHandler, Master};
 use clipboard_rs::common::RustImage;
 use clipboard_rs::{Clipboard as ClipboardFormats, ClipboardContext, RustImageData};
+use keyring::Entry as KeyringEntry;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{
@@ -35,6 +36,8 @@ const MAX_FILE_PREVIEW_BYTES: u64 = 20 * 1024 * 1024;
 const DEFAULT_NOTIFICATION_DURATION_MS: u64 = 3_000;
 const MIN_NOTIFICATION_DURATION_MS: u64 = 1_000;
 const MAX_NOTIFICATION_DURATION_MS: u64 = 30_000;
+const HISTORY_FILE_VERSION: u8 = 2;
+const KEYRING_SERVICE: &str = "miao-clip";
 
 #[derive(Debug, Clone, Serialize)]
 struct ClipboardSnapshot {
@@ -63,6 +66,8 @@ struct ClipboardSnapshot {
 struct HistoryEntry {
     id: String,
     text: String,
+    #[serde(default)]
+    length: usize,
     title: String,
     kind: String,
     time: String,
@@ -80,6 +85,8 @@ struct HistoryEntry {
     image_height: Option<u32>,
     #[serde(default)]
     files: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    secret_ref: Option<String>,
 }
 
 fn default_category() -> String {
@@ -202,6 +209,13 @@ impl ClipboardHandler for ClipboardMonitor {
                     &self.notification_settings,
                     &self.capture_state,
                 );
+                if snapshot.sensitivity == "sensitive" {
+                    // The native monitor has already persisted the secret in
+                    // the system keyring. Do not send its plaintext into the
+                    // WebView just to refresh the history list.
+                    snapshot.text = None;
+                    snapshot.preview = "密码类内容".to_string();
+                }
                 if let Err(error) = self.app.emit("clipboard-changed", snapshot) {
                     log::warn!("无法通知前端剪贴板变化：{error}");
                 }
@@ -498,6 +512,38 @@ fn history_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(directory.join(HISTORY_FILE_NAME))
 }
 
+fn sensitive_secret_ref(entry_id: &str) -> String {
+    format!("entry:{entry_id}")
+}
+
+fn sensitive_keyring_entry(secret_ref: &str) -> Result<KeyringEntry, String> {
+    KeyringEntry::new(KEYRING_SERVICE, secret_ref)
+        .map_err(|error| format!("系统安全存储不可用：{error}"))
+}
+
+fn store_sensitive_secret(secret_ref: &str, text: &str) -> Result<(), String> {
+    sensitive_keyring_entry(secret_ref)?
+        .set_password(text)
+        .map_err(|error| format!("无法写入系统安全存储：{error}"))
+}
+
+fn read_sensitive_secret(secret_ref: &str) -> Result<String, String> {
+    sensitive_keyring_entry(secret_ref)?
+        .get_password()
+        .map_err(|error| format!("无法读取系统安全存储中的内容：{error}"))
+}
+
+fn delete_sensitive_secret(secret_ref: &str) {
+    match sensitive_keyring_entry(secret_ref).and_then(|entry| {
+        entry
+            .delete_credential()
+            .map_err(|error| format!("无法删除系统安全存储内容：{error}"))
+    }) {
+        Ok(()) => {}
+        Err(error) => log::warn!("清理敏感剪贴板内容失败：{error}"),
+    }
+}
+
 fn image_directory(app: &AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -620,13 +666,22 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
     let mut normalized = Vec::with_capacity(entries.len().min(MAX_HISTORY_ENTRIES));
 
     for entry in entries {
-        if entry.text.trim().is_empty() && entry.image_id.is_none() && entry.files.is_none() {
+        if entry.text.trim().is_empty()
+            && entry.image_id.is_none()
+            && entry.files.is_none()
+            && entry.secret_ref.is_none()
+        {
             continue;
         }
         let signature = if let Some(image_id) = &entry.image_id {
             format!("image:{image_id}")
         } else if let Some(files) = &entry.files {
             format!("files:{}", files.join("\0"))
+        } else if entry.category == "password" {
+            format!(
+                "password:{}",
+                entry.secret_ref.as_deref().unwrap_or(entry.id.as_str())
+            )
         } else {
             format!("{}:{}", entry.kind, entry.text)
         };
@@ -684,6 +739,7 @@ fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
     HistoryEntry {
         id: snapshot.entry_id.clone(),
         text,
+        length: snapshot.length,
         title,
         kind,
         time: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
@@ -694,6 +750,8 @@ fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
         image_width: snapshot.image_width,
         image_height: snapshot.image_height,
         files: snapshot.files.clone(),
+        secret_ref: (snapshot.sensitivity == "sensitive")
+            .then(|| sensitive_secret_ref(&snapshot.entry_id)),
     }
 }
 
@@ -704,9 +762,59 @@ fn history_entry_matches_snapshot(entry: &HistoryEntry, snapshot: &ClipboardSnap
         _ => {
             entry.image_id.is_none()
                 && entry.files.is_none()
-                && entry.text == snapshot.text.clone().unwrap_or_default()
+                && if snapshot.sensitivity == "sensitive" {
+                    entry.secret_ref.as_deref()
+                        == Some(sensitive_secret_ref(&snapshot.entry_id).as_str())
+                        || entry.id == snapshot.entry_id
+                } else {
+                    entry.text == snapshot.text.clone().unwrap_or_default()
+                }
         }
     }
+}
+
+fn protect_sensitive_entries(entries: &mut [HistoryEntry]) -> Result<bool, String> {
+    let mut changed = false;
+    for entry in entries {
+        let sensitive = entry.category == "password" || is_sensitive_text(&entry.text);
+        if !sensitive {
+            continue;
+        }
+
+        let secret_ref = entry
+            .secret_ref
+            .clone()
+            .unwrap_or_else(|| sensitive_secret_ref(&entry.id));
+        if entry.secret_ref.as_deref() != Some(secret_ref.as_str()) {
+            entry.secret_ref = Some(secret_ref.clone());
+            changed = true;
+        }
+        if entry.category != "password" {
+            entry.category = "password".to_string();
+            changed = true;
+        }
+        if entry.title.is_empty() || entry.title == entry.text {
+            entry.title = "密码信息".to_string();
+            changed = true;
+        }
+        if !entry.text.is_empty() {
+            store_sensitive_secret(&secret_ref, &entry.text)?;
+            entry.text.clear();
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+fn write_history_file(app: &AppHandle, entries: &[HistoryEntry]) -> Result<(), String> {
+    let history = HistoryFile {
+        version: HISTORY_FILE_VERSION,
+        entries: entries.to_vec(),
+    };
+    let contents = serde_json::to_string_pretty(&history)
+        .map_err(|error| format!("无法生成本地历史：{error}"))?;
+    let path = history_path(app)?;
+    fs::write(path, contents).map_err(|error| format!("无法保存本地历史：{error}"))
 }
 
 fn read_history_entries(app: &AppHandle) -> Result<Vec<HistoryEntry>, String> {
@@ -718,20 +826,31 @@ fn read_history_entries(app: &AppHandle) -> Result<Vec<HistoryEntry>, String> {
     };
     let history: HistoryFile =
         serde_json::from_str(&contents).map_err(|error| format!("本地历史格式无效：{error}"))?;
-    Ok(normalize_history(history.entries))
+    let mut entries = normalize_history(history.entries);
+    let changed = protect_sensitive_entries(&mut entries)?;
+    if changed || history.version < HISTORY_FILE_VERSION {
+        write_history_file(app, &entries)?;
+    }
+    Ok(entries)
 }
 
 fn write_history_entries(app: &AppHandle, entries: &[HistoryEntry]) -> Result<(), String> {
-    let entries = normalize_history(entries.to_vec());
-    let history = HistoryFile {
-        version: 1,
-        entries: entries.clone(),
-    };
-    let contents = serde_json::to_string_pretty(&history)
-        .map_err(|error| format!("无法生成本地历史：{error}"))?;
-    let path = history_path(app)?;
-    fs::write(path, contents).map_err(|error| format!("无法保存本地历史：{error}"))?;
+    let mut entries = normalize_history(entries.to_vec());
+    protect_sensitive_entries(&mut entries)?;
+    write_history_file(app, &entries)?;
     prune_images(app, &entries)
+}
+
+fn cleanup_removed_sensitive_secrets(previous: &[HistoryEntry], current: &[HistoryEntry]) {
+    let retained: HashSet<&str> = current
+        .iter()
+        .filter_map(|entry| entry.secret_ref.as_deref())
+        .collect();
+    previous
+        .iter()
+        .filter_map(|entry| entry.secret_ref.as_deref())
+        .filter(|secret_ref| !retained.contains(secret_ref))
+        .for_each(delete_sensitive_secret);
 }
 
 fn persist_captured_snapshot(
@@ -743,6 +862,7 @@ fn persist_captured_snapshot(
         .lock()
         .map_err(|_| "无法锁定本地历史。".to_string())?;
     let mut entries = read_history_entries(app)?;
+    let previous_entries = entries.clone();
     let pinned = entries
         .iter()
         .find(|entry| history_entry_matches_snapshot(entry, snapshot))
@@ -751,7 +871,9 @@ fn persist_captured_snapshot(
     entry.pinned = pinned;
     entries.retain(|candidate| !history_entry_matches_snapshot(candidate, snapshot));
     entries.insert(0, entry);
-    write_history_entries(app, &entries)
+    write_history_entries(app, &entries)?;
+    cleanup_removed_sensitive_secrets(&previous_entries, &entries);
+    Ok(())
 }
 
 fn migrate_image_file_entry(app: &AppHandle, entry: HistoryEntry) -> HistoryEntry {
@@ -772,6 +894,7 @@ fn migrate_image_file_entry(app: &AppHandle, entry: HistoryEntry) -> HistoryEntr
     HistoryEntry {
         id: snapshot.entry_id,
         text: String::new(),
+        length: 0,
         title: format!(
             "剪贴板图片 {} × {}",
             snapshot.image_width.unwrap_or(0),
@@ -786,6 +909,7 @@ fn migrate_image_file_entry(app: &AppHandle, entry: HistoryEntry) -> HistoryEntr
         image_width: snapshot.image_width,
         image_height: snapshot.image_height,
         files: None,
+        secret_ref: None,
     }
 }
 
@@ -1066,6 +1190,14 @@ fn consume_suppressed_entry(
 #[tauri::command]
 fn write_clipboard(state: State<'_, RuntimeState>, text: String) -> Result<(), String> {
     let entry_id = content_entry_id("text", text.as_bytes());
+    write_text_to_clipboard(&state, entry_id, text)
+}
+
+fn write_text_to_clipboard(
+    state: &RuntimeState,
+    entry_id: String,
+    text: String,
+) -> Result<(), String> {
     mark_suppressed_entry(&state, entry_id.clone())?;
     let mut clipboard = match Clipboard::new() {
         Ok(clipboard) => clipboard,
@@ -1079,6 +1211,47 @@ fn write_clipboard(state: State<'_, RuntimeState>, text: String) -> Result<(), S
         return Err(error.to_string());
     }
     Ok(())
+}
+
+#[tauri::command]
+fn store_sensitive_entry(entry_id: String, text: String) -> Result<(), String> {
+    if entry_id.is_empty() || text.is_empty() {
+        return Err("敏感内容记录无效。".to_string());
+    }
+    store_sensitive_secret(&sensitive_secret_ref(&entry_id), &text)
+}
+
+#[tauri::command]
+fn reveal_sensitive_entry(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+    entry_id: String,
+) -> Result<String, String> {
+    let _guard = state
+        .history_lock
+        .lock()
+        .map_err(|_| "无法锁定本地历史。".to_string())?;
+    let entry = read_history_entries(&app)?
+        .into_iter()
+        .find(|entry| entry.id == entry_id)
+        .ok_or_else(|| "这条敏感记录已不存在。".to_string())?;
+    if entry.category != "password" {
+        return Err("这条记录不是敏感内容。".to_string());
+    }
+    let secret_ref = entry
+        .secret_ref
+        .ok_or_else(|| "这条敏感记录没有安全存储引用。".to_string())?;
+    read_sensitive_secret(&secret_ref)
+}
+
+#[tauri::command]
+fn copy_sensitive_entry(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+    entry_id: String,
+) -> Result<(), String> {
+    let secret = reveal_sensitive_entry(app, state.clone(), entry_id.clone())?;
+    write_text_to_clipboard(&state, content_entry_id("text", secret.as_bytes()), secret)
 }
 
 #[tauri::command]
@@ -1314,8 +1487,10 @@ fn save_history(
         .history_lock
         .lock()
         .map_err(|_| "无法锁定本地历史。".to_string())?;
+    let previous_entries = read_history_entries(&app)?;
     let entries = normalize_history(entries);
     write_history_entries(&app, &entries)?;
+    cleanup_removed_sensitive_secrets(&previous_entries, &entries);
     Ok(HistorySaveResult {
         saved_count: entries.len(),
     })
@@ -1327,10 +1502,17 @@ fn clear_history(app: AppHandle, state: State<'_, RuntimeState>) -> Result<(), S
         .history_lock
         .lock()
         .map_err(|_| "无法锁定本地历史。".to_string())?;
+    let previous_entries = read_history_entries(&app)?;
     let path = history_path(&app)?;
     match fs::remove_file(path) {
-        Ok(()) => prune_images(&app, &[]),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => prune_images(&app, &[]),
+        Ok(()) => {
+            cleanup_removed_sensitive_secrets(&previous_entries, &[]);
+            prune_images(&app, &[])
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            cleanup_removed_sensitive_secrets(&previous_entries, &[]);
+            prune_images(&app, &[])
+        }
         Err(error) => Err(format!("无法清空本地历史：{error}")),
     }
 }
@@ -1441,10 +1623,13 @@ pub fn run() {
             open_clipboard_entry,
             place_clipboard_toast,
             read_clipboard,
+            reveal_sensitive_entry,
             save_history,
             set_capture_state,
             set_autostart_enabled,
             save_notification_settings,
+            store_sensitive_entry,
+            copy_sensitive_entry,
             write_clipboard,
             write_files_clipboard,
             write_history_image_clipboard,
@@ -1461,13 +1646,14 @@ mod tests {
         CaptureState, ClipboardSnapshot, HistoryEntry, NotificationSettings, build_toast_payload,
         content_entry_id, decode_image_buffers, file_name, history_entry_from_snapshot,
         is_image_format, is_sensitive_text, normalize_history, normalize_notification_settings,
-        normalize_position, notification_title,
+        normalize_position, notification_title, sensitive_secret_ref,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
         HistoryEntry {
             id: id.to_string(),
             text: text.to_string(),
+            length: text.chars().count(),
             title: text.to_string(),
             kind: "文本".to_string(),
             time: "2026-10-28T00:00:00.000Z".to_string(),
@@ -1478,6 +1664,7 @@ mod tests {
             image_width: None,
             image_height: None,
             files: None,
+            secret_ref: None,
         }
     }
 
@@ -1525,6 +1712,44 @@ mod tests {
     #[test]
     fn password_reminders_are_enabled_by_default() {
         assert!(NotificationSettings::default().sensitive);
+    }
+
+    #[test]
+    fn sensitive_history_metadata_uses_a_stable_non_plaintext_reference() {
+        let mut protected = entry("text-secret", "");
+        protected.category = "password".to_string();
+        protected.secret_ref = Some(sensitive_secret_ref(&protected.id));
+
+        let serialized = serde_json::to_string(&protected).expect("history entry should serialize");
+        assert!(serialized.contains("secret_ref"));
+        assert!(serialized.contains("entry:text-secret"));
+        assert!(!serialized.contains("password="));
+        assert_eq!(sensitive_secret_ref("text-secret"), "entry:text-secret");
+    }
+
+    #[test]
+    fn sensitive_snapshot_is_marked_for_secure_storage() {
+        let snapshot = ClipboardSnapshot {
+            kind: "text",
+            sensitivity: "sensitive",
+            text: Some("password=do-not-persist-in-history".to_string()),
+            preview: "password=do-not-persist-in-history".to_string(),
+            length: 35,
+            entry_id: "text-sensitive-test".to_string(),
+            source_app: "测试应用".to_string(),
+            persisted: false,
+            image_id: None,
+            image_width: None,
+            image_height: None,
+            files: None,
+            toast: None,
+        };
+        let entry = history_entry_from_snapshot(&snapshot);
+        assert_eq!(entry.category, "password");
+        assert_eq!(
+            entry.secret_ref.as_deref(),
+            Some("entry:text-sensitive-test")
+        );
     }
 
     #[test]

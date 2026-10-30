@@ -188,6 +188,8 @@ images/             图片的本地 PNG 副本
 notifications.json  通知开关、位置和持续时间
 ```
 
+密码、Token、API Key 等被识别为敏感内容后，原文不会再写入 `history.json`。妙夹会使用当前系统的安全凭据存储保存正文：macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret Service；历史文件只保存记录元数据和安全存储引用。点击“显示原文”或“复制原文”时，妙夹才会按需读取。
+
 隐私模式开启后会同时做到：
 
 1. 暂停自动捕获。
@@ -195,7 +197,7 @@ notifications.json  通知开关、位置和持续时间
 3. 不写入新记录。
 4. 关闭隐私模式后恢复之前的监听状态。
 
-当前历史文件是本地 JSON，并不等同于系统级加密存储。后续会评估接入 macOS Keychain、Windows Credential Manager 和 Linux Secret Service，减少敏感内容明文落盘的风险。
+这项保护减少了敏感内容明文落盘的风险，但妙夹仍然不是完整的密码管理器：敏感识别采用启发式规则，系统账户、密钥环权限和桌面环境仍会影响实际保护效果。
 
 ## 平台支持
 
@@ -230,7 +232,7 @@ miao-clip/
 - [x] 暂停监听、隐私模式和系统托盘后台运行
 - [x] 来源应用记录和开机启动
 - [x] macOS、Linux、Windows CI 检查；macOS 和 Windows 测试安装包上传为 Actions 产物
-- [ ] 系统安全存储，减少敏感内容明文落盘
+- [x] 系统安全存储，减少敏感内容明文落盘
 - [ ] 全局快捷键与快速粘贴
 - [ ] 根据账号、域名和内容上下文提供可控推荐
 - [ ] 更完整的跨平台安装包发布流程
