@@ -25,6 +25,7 @@
       inApp: true,
       desktop: true,
       sensitive: true,
+      quickPasteEnabled: true,
       position: "bottom-right",
       durationMs: 3000,
     },
@@ -55,6 +56,7 @@
     notifyInApp: document.getElementById("notify-in-app"),
     notifyDesktop: document.getElementById("notify-desktop"),
     notifySensitive: document.getElementById("notify-sensitive"),
+    quickPasteEnabled: document.getElementById("quick-paste-enabled"),
     notifyPosition: document.getElementById("notify-position"),
     notifyDuration: document.getElementById("notify-duration"),
     privacyMode: document.getElementById("privacy-mode"),
@@ -161,6 +163,7 @@
       inApp: settings.in_app ?? settings.inApp ?? true,
       desktop: settings.desktop ?? true,
       sensitive: settings.sensitive ?? true,
+      quickPasteEnabled: settings.quick_paste_enabled ?? settings.quickPasteEnabled ?? true,
       position: settings.position || "bottom-right",
       durationMs: normalizeNotificationDuration(settings.duration_ms ?? settings.durationMs),
     };
@@ -171,6 +174,7 @@
       in_app: Boolean(settings.inApp),
       desktop: Boolean(settings.desktop),
       sensitive: Boolean(settings.sensitive),
+      quick_paste_enabled: Boolean(settings.quickPasteEnabled),
       position: settings.position,
       duration_ms: normalizeNotificationDuration(settings.durationMs),
     };
@@ -197,6 +201,7 @@
     elements.notifyInApp.checked = state.notificationSettings.inApp;
     elements.notifyDesktop.checked = state.notificationSettings.desktop;
     elements.notifySensitive.checked = state.notificationSettings.sensitive;
+    elements.quickPasteEnabled.checked = state.notificationSettings.quickPasteEnabled;
     elements.notifyPosition.value = state.notificationSettings.position;
     elements.notifyDuration.value = String(state.notificationSettings.durationMs);
     try {
@@ -211,6 +216,7 @@
     elements.notifyInApp.checked = state.notificationSettings.inApp;
     elements.notifyDesktop.checked = state.notificationSettings.desktop;
     elements.notifySensitive.checked = state.notificationSettings.sensitive;
+    elements.quickPasteEnabled.checked = state.notificationSettings.quickPasteEnabled;
     elements.notifyPosition.value = state.notificationSettings.position;
     elements.notifyDuration.value = String(state.notificationSettings.durationMs);
   }
@@ -943,6 +949,11 @@
     state.notificationSettings.sensitive = elements.notifySensitive.checked;
     saveNotificationSettings(previousSettings);
   });
+  elements.quickPasteEnabled.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
+    state.notificationSettings.quickPasteEnabled = elements.quickPasteEnabled.checked;
+    saveNotificationSettings(previousSettings);
+  });
   elements.notifyPosition.addEventListener("change", () => {
     const previousSettings = { ...state.notificationSettings };
     state.notificationSettings.position = elements.notifyPosition.value;
@@ -961,7 +972,7 @@
     elements.launchAtLogin.disabled = true;
     try {
       await invoke("set_autostart_enabled", { enabled });
-      elements.settingsNote.textContent = enabled ? "妙夹将在登录时自动启动。" : "已关闭登录时自动启动。";
+      elements.settingsNote.textContent = enabled ? "妙夹将在开机后自动启动。" : "已关闭开机后自动启动。";
     } catch (error) {
       elements.launchAtLogin.checked = !enabled;
       elements.settingsNote.textContent = `开机启动设置失败：${error}`;

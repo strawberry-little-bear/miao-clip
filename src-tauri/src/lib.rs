@@ -116,6 +116,8 @@ struct NotificationSettings {
     in_app: bool,
     desktop: bool,
     sensitive: bool,
+    #[serde(default = "default_quick_paste_enabled")]
+    quick_paste_enabled: bool,
     position: String,
     #[serde(default = "default_notification_duration_ms")]
     duration_ms: u64,
@@ -125,12 +127,17 @@ fn default_notification_duration_ms() -> u64 {
     DEFAULT_NOTIFICATION_DURATION_MS
 }
 
+fn default_quick_paste_enabled() -> bool {
+    true
+}
+
 impl Default for NotificationSettings {
     fn default() -> Self {
         Self {
             in_app: true,
             desktop: true,
             sensitive: true,
+            quick_paste_enabled: true,
             position: "bottom-right".to_string(),
             duration_ms: DEFAULT_NOTIFICATION_DURATION_MS,
         }
@@ -1476,6 +1483,8 @@ fn save_notification_settings(
     settings: NotificationSettings,
 ) -> Result<NotificationSettings, String> {
     let settings = normalize_notification_settings(settings);
+    #[cfg(desktop)]
+    configure_quick_paste_shortcut(&app, settings.quick_paste_enabled)?;
     save_notification_settings_to_disk(&app, &settings)?;
     let mut current = state
         .notification_settings
@@ -1483,6 +1492,40 @@ fn save_notification_settings(
         .map_err(|_| "无法更新通知设置。".to_string())?;
     *current = settings.clone();
     Ok(settings)
+}
+
+#[cfg(desktop)]
+fn configure_quick_paste_shortcut(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    let shortcuts = app.global_shortcut();
+    if enabled {
+        if shortcuts.is_registered(QUICK_PASTE_SHORTCUT) {
+            return Ok(());
+        }
+        shortcuts
+            .on_shortcut(QUICK_PASTE_SHORTCUT, |app, _shortcut, event| {
+                use tauri_plugin_global_shortcut::ShortcutState;
+
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+                if let Err(error) = show_main_window(app) {
+                    log::warn!("无法打开快速粘贴窗口：{error}");
+                    return;
+                }
+                if let Err(error) = app.emit("quick-paste-request", ()) {
+                    log::warn!("无法通知前端进入快速粘贴：{error}");
+                }
+            })
+            .map_err(|error| format!("无法启用快速粘贴快捷键：{error}"))
+    } else if shortcuts.is_registered(QUICK_PASTE_SHORTCUT) {
+        shortcuts
+            .unregister(QUICK_PASTE_SHORTCUT)
+            .map_err(|error| format!("无法关闭快速粘贴快捷键：{error}"))
+    } else {
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -1591,27 +1634,9 @@ pub fn run() {
         .setup(|app| {
             #[cfg(desktop)]
             {
-                use tauri_plugin_global_shortcut::{
-                    Builder as GlobalShortcutBuilder, ShortcutState,
-                };
+                use tauri_plugin_global_shortcut::Builder as GlobalShortcutBuilder;
 
-                app.handle().plugin(
-                    GlobalShortcutBuilder::new()
-                        .with_shortcut(QUICK_PASTE_SHORTCUT)?
-                        .with_handler(|app, _shortcut, event| {
-                            if event.state != ShortcutState::Pressed {
-                                return;
-                            }
-                            if let Err(error) = show_main_window(app) {
-                                log::warn!("无法打开快速粘贴窗口：{error}");
-                                return;
-                            }
-                            if let Err(error) = app.emit("quick-paste-request", ()) {
-                                log::warn!("无法通知前端进入快速粘贴：{error}");
-                            }
-                        })
-                        .build(),
-                )?;
+                app.handle().plugin(GlobalShortcutBuilder::new().build())?;
             }
 
             let notification_settings = match load_notification_settings(&app.handle()) {
@@ -1621,6 +1646,12 @@ pub fn run() {
                     NotificationSettings::default()
                 }
             };
+            #[cfg(desktop)]
+            configure_quick_paste_shortcut(
+                &app.handle(),
+                notification_settings.quick_paste_enabled,
+            )
+            .map_err(std::io::Error::other)?;
             let notification_settings = Arc::new(RwLock::new(notification_settings));
             let capture_state = Arc::new(RwLock::new(CaptureState::default()));
             let history_lock = Arc::new(Mutex::new(()));
