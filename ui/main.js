@@ -295,7 +295,17 @@
 
   function formatTime(date) {
     const value = date instanceof Date ? date : new Date(date);
-    return value.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    if (Number.isNaN(value.getTime())) return "时间未知";
+    const parts = new Intl.DateTimeFormat("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(value);
+    const part = (type) => parts.find((item) => item.type === type)?.value || "";
+    return `${part("year")}/${part("month")}/${part("day")} ${part("hour")}:${part("minute")}`;
   }
 
   function escapeHtml(value) {
