@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f6f5f1" />
     <title>妙夹 · MiaoClip</title>
-    <link rel="stylesheet" href="style.css?v=15" />
+    <link rel="stylesheet" href="style.css?v=16" />
   </head>
   <body>
     <div class="app-frame">
@@ -47,8 +47,8 @@
               </div>
             </div>
             <div class="bulk-actions" id="bulk-actions" hidden>
-              <span class="bulk-selection-count" id="selection-summary">未选择内容</span>
-              <button class="quiet-button" id="select-visible" type="button">全选当前</button>
+              <span class="bulk-selection-count" id="selection-summary" aria-live="polite">未选择内容</span>
+              <button class="quiet-button" id="select-visible" type="button" aria-pressed="false">全选当前</button>
               <button class="quiet-button" id="bulk-pin" type="button" disabled>收藏所选</button>
               <button class="quiet-button danger-button" id="bulk-delete" type="button" disabled>删除所选</button>
               <button class="quiet-button" id="exit-selection" type="button">完成</button>
@@ -117,6 +117,6 @@
       </main>
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <script src="main.js?v=16"></script>
+    <script src="main.js?v=17"></script>
   </body>
 </html>

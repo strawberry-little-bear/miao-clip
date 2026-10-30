@@ -459,6 +459,8 @@
     const allVisibleSelected = entries.length > 0 && entries.every((entry) => state.selectedIds.has(entry.id));
     elements.selectionSummary.textContent = selectedCount ? `已选择 ${selectedCount} 条` : "未选择内容";
     elements.selectVisible.textContent = allVisibleSelected ? "取消全选" : "全选当前";
+    elements.selectVisible.setAttribute("aria-pressed", String(allVisibleSelected));
+    elements.selectVisible.disabled = entries.length === 0;
     elements.bulkPin.disabled = selectedCount === 0;
     elements.bulkDelete.disabled = selectedCount === 0;
     elements.feed.querySelectorAll(".feed-card").forEach((card) => card.remove());
@@ -475,7 +477,16 @@
       if (state.quickPasteMode && index === state.quickPasteIndex) card.classList.add("is-quick-selected");
       card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small><small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
       card.querySelector(".entry-select").addEventListener("change", (event) => toggleEntrySelection(entry.id, event));
-      card.querySelector(".feed-card-main").addEventListener("click", () => selectEntry(entry.id));
+      card.querySelector(".feed-card-main").addEventListener("click", (event) => {
+        if (!state.selectionMode) {
+          selectEntry(entry.id);
+          return;
+        }
+        event.preventDefault();
+        if (state.selectedIds.has(entry.id)) state.selectedIds.delete(entry.id);
+        else state.selectedIds.add(entry.id);
+        renderFeed();
+      });
       card.querySelector(".pin-button").addEventListener("click", (event) => togglePinned(entry.id, event));
       card.querySelector(".delete-button").addEventListener("click", (event) => deleteEntry(entry.id, event));
       elements.feed.append(card);
@@ -1013,7 +1024,12 @@
       favorites: "收藏的内容会在应用重启后保留",
       settings: "通知设置保存在本机，并由原生监听器直接使用",
     };
-    state.view = titles[view] ? view : "inbox";
+    const nextView = titles[view] ? view : "inbox";
+    if (state.view !== nextView) {
+      state.selectedIds.clear();
+      state.selectionMode = false;
+    }
+    state.view = nextView;
     const isSettings = state.view === "settings";
     elements.settingsPanel.hidden = !isSettings;
     document.querySelector(".workspace-grid").hidden = isSettings;
@@ -1086,15 +1102,27 @@
       elements.launchAtLogin.disabled = false;
     }
   });
+  function clearSelectionBeforeFilterChange() {
+    if (state.selectionMode) state.selectedIds.clear();
+  }
+
   elements.searchInput.addEventListener("input", () => {
+    clearSelectionBeforeFilterChange();
     renderFeed();
     if (state.quickPasteMode) {
       state.quickPasteIndex = 0;
       updateQuickPasteSelection();
     }
   });
-  [elements.categoryFilter, elements.sourceFilter, elements.timeFilter, elements.dateFrom, elements.dateTo].forEach((control) => control.addEventListener("input", renderFeed));
-  elements.timeFilter.addEventListener("change", () => { syncDateFilters(); renderFeed(); });
+  [elements.categoryFilter, elements.sourceFilter, elements.timeFilter, elements.dateFrom, elements.dateTo].forEach((control) => control.addEventListener("input", () => {
+    clearSelectionBeforeFilterChange();
+    renderFeed();
+  }));
+  elements.timeFilter.addEventListener("change", () => {
+    clearSelectionBeforeFilterChange();
+    syncDateFilters();
+    renderFeed();
+  });
   syncDateFilters();
   document.addEventListener("keydown", (event) => {
     if (state.quickPasteMode) {
