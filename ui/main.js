@@ -33,6 +33,8 @@
     revealTimer: null,
     quickPasteMode: false,
     quickPasteIndex: 0,
+    selectionMode: false,
+    selectedIds: new Set(),
   };
   const elements = {
     viewTitle: document.getElementById("view-title"),
@@ -71,6 +73,13 @@
     timeFilter: document.getElementById("time-filter"),
     dateFrom: document.getElementById("date-from"),
     dateTo: document.getElementById("date-to"),
+    enterSelection: document.getElementById("enter-selection"),
+    exitSelection: document.getElementById("exit-selection"),
+    bulkActions: document.getElementById("bulk-actions"),
+    selectionSummary: document.getElementById("selection-summary"),
+    selectVisible: document.getElementById("select-visible"),
+    bulkPin: document.getElementById("bulk-pin"),
+    bulkDelete: document.getElementById("bulk-delete"),
   };
 
   function setMonitorStatus(status, label, detail) {
@@ -438,25 +447,115 @@
   function renderFeed() {
     syncSourceFilter();
     const entries = visibleEntries();
+    const entryIds = new Set(state.entries.map((entry) => entry.id));
+    state.selectedIds.forEach((id) => {
+      if (!entryIds.has(id)) state.selectedIds.delete(id);
+    });
     elements.inboxCount.textContent = String(state.entries.length);
     elements.emptyFeed.hidden = entries.length > 0;
+    elements.bulkActions.hidden = !state.selectionMode;
+    elements.enterSelection.hidden = state.selectionMode;
+    const selectedCount = state.selectedIds.size;
+    const allVisibleSelected = entries.length > 0 && entries.every((entry) => state.selectedIds.has(entry.id));
+    elements.selectionSummary.textContent = selectedCount ? `已选择 ${selectedCount} 条` : "未选择内容";
+    elements.selectVisible.textContent = allVisibleSelected ? "取消全选" : "全选当前";
+    elements.bulkPin.disabled = selectedCount === 0;
+    elements.bulkDelete.disabled = selectedCount === 0;
     elements.feed.querySelectorAll(".feed-card").forEach((card) => card.remove());
     entries.forEach((entry, index) => {
       const card = document.createElement("article");
       const protectedEntry = entry.category === "password";
-      card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}`;
+      card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${state.selectionMode ? " is-selection-mode" : ""}`;
       const icon = entry.kind === "图片" ? "▧" : entry.kind === "文件" ? "↗" : entry.kind === "JSON" ? "{}" : entry.category === "password" ? "•" : entry.category === "url" ? "↗" : entry.category === "account" ? "@" : "T";
       const summary = protectedEntry ? maskedProtectedText() : entry.kind === "图片"
         ? `${entry.image_width || 0} × ${entry.image_height || 0}`
         : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${(entry.text || "").length} 字符`;
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${protectedEntry ? " is-protected" : ""}`;
+      if (state.selectionMode) card.classList.add("is-selection-mode");
       if (state.quickPasteMode && index === state.quickPasteIndex) card.classList.add("is-quick-selected");
-      card.innerHTML = `<button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small><small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
+      card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small><small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
+      card.querySelector(".entry-select").addEventListener("change", (event) => toggleEntrySelection(entry.id, event));
       card.querySelector(".feed-card-main").addEventListener("click", () => selectEntry(entry.id));
       card.querySelector(".pin-button").addEventListener("click", (event) => togglePinned(entry.id, event));
       card.querySelector(".delete-button").addEventListener("click", (event) => deleteEntry(entry.id, event));
       elements.feed.append(card);
     });
+  }
+
+  function enterSelectionMode() {
+    state.selectionMode = true;
+    state.selectedIds.clear();
+    renderFeed();
+  }
+
+  function exitSelectionMode() {
+    state.selectionMode = false;
+    state.selectedIds.clear();
+    renderFeed();
+  }
+
+  function toggleEntrySelection(id, event) {
+    event.stopPropagation();
+    if (event.target.checked) state.selectedIds.add(id);
+    else state.selectedIds.delete(id);
+    renderFeed();
+  }
+
+  function toggleVisibleSelection() {
+    const entries = visibleEntries();
+    const allSelected = entries.length > 0 && entries.every((entry) => state.selectedIds.has(entry.id));
+    entries.forEach((entry) => {
+      if (allSelected) state.selectedIds.delete(entry.id);
+      else state.selectedIds.add(entry.id);
+    });
+    renderFeed();
+  }
+
+  function selectedEntries() {
+    return state.entries.filter((entry) => state.selectedIds.has(entry.id));
+  }
+
+  async function bulkTogglePinned() {
+    const entries = selectedEntries();
+    if (!entries.length) return;
+    const previousEntries = state.entries.map((entry) => ({ ...entry, files: entry.files ? [...entry.files] : entry.files }));
+    const shouldPin = entries.some((entry) => !entry.pinned);
+    entries.forEach((entry) => { entry.pinned = shouldPin; });
+    renderFeed();
+    try {
+      requireTauri();
+      await saveHistory();
+      setMessage(shouldPin ? `已收藏 ${entries.length} 条内容。` : `已取消收藏 ${entries.length} 条内容。`);
+      exitSelectionMode();
+    } catch (error) {
+      state.entries = previousEntries;
+      renderFeed();
+      setMessage(String(error));
+    }
+  }
+
+  async function bulkDeleteSelected() {
+    const entries = selectedEntries();
+    if (!entries.length) return;
+    const confirmed = window.confirm(`确认删除选中的 ${entries.length} 条内容吗？此操作无法撤销。`);
+    if (!confirmed) return;
+    const previousEntries = state.entries.map((entry) => ({ ...entry, files: entry.files ? [...entry.files] : entry.files }));
+    const previousSelectedId = state.selectedId;
+    const selectedIds = new Set(entries.map((entry) => entry.id));
+    state.entries = state.entries.filter((entry) => !selectedIds.has(entry.id));
+    if (state.selectedId && selectedIds.has(state.selectedId)) resetDetail();
+    renderFeed();
+    try {
+      requireTauri();
+      await saveHistory();
+      setMessage(`已删除 ${entries.length} 条内容。`);
+      exitSelectionMode();
+    } catch (error) {
+      state.entries = previousEntries;
+      if (previousSelectedId && state.entries.some((entry) => entry.id === previousSelectedId)) selectEntry(previousSelectedId);
+      else renderFeed();
+      setMessage(String(error));
+    }
   }
 
   function quickPasteEntries() {
@@ -523,6 +622,7 @@
     event.stopPropagation();
     const index = state.entries.findIndex((entry) => entry.id === id);
     if (index < 0) return;
+    const previousSelectedId = state.selectedId;
     const [removed] = state.entries.splice(index, 1);
     if (state.selectedId === id) resetDetail();
     renderFeed();
@@ -532,7 +632,8 @@
       setMessage("这条内容已删除。");
     } catch (error) {
       state.entries.splice(index, 0, removed);
-      renderFeed();
+      if (previousSelectedId && state.entries.some((entry) => entry.id === previousSelectedId)) selectEntry(previousSelectedId);
+      else renderFeed();
       setMessage(String(error));
     }
   }
@@ -929,6 +1030,11 @@
   document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => runAction(button.dataset.action)));
   document.querySelectorAll(".nav-item[data-view]").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   document.getElementById("settings-back").addEventListener("click", () => setView("inbox"));
+  elements.enterSelection.addEventListener("click", enterSelectionMode);
+  elements.exitSelection.addEventListener("click", exitSelectionMode);
+  elements.selectVisible.addEventListener("click", toggleVisibleSelection);
+  elements.bulkPin.addEventListener("click", () => bulkTogglePinned());
+  elements.bulkDelete.addEventListener("click", () => bulkDeleteSelected());
   elements.monitorToggle.addEventListener("click", () => {
     saveCaptureState({ paused: !state.captureState.paused, privacyMode: false });
   });
