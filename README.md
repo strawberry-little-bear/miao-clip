@@ -15,6 +15,7 @@
 
   <p>
     <a href="#界面预览">界面预览</a> ·
+    <a href="#下载试用版">下载试用版</a> ·
     <a href="#快速开始">快速开始</a> ·
     <a href="#隐私与数据">隐私与数据</a> ·
     <a href="#参与贡献">参与贡献</a>
@@ -114,7 +115,19 @@ flowchart LR
 
 ## 快速开始
 
-当前项目以源码构建为主，GitHub Actions 会持续检查 Rust 代码，并验证 macOS 和 Windows 的桌面构建。
+GitHub Actions 会持续检查代码，并为 macOS 和 Windows 自动构建可下载的试用安装包。
+
+### 下载试用版
+
+打开项目的 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml)，进入最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载对应平台的产物：
+
+| 产物 | 适用设备 | 文件 |
+| --- | --- | --- |
+| `MiaoClip-macos-arm64` | Apple Silicon Mac（M 系列） | `.dmg` |
+| `MiaoClip-macos-x64` | Intel Mac | `.dmg` |
+| `MiaoClip-windows-x64` | 64 位 Windows | `.msi` 安装包和 `.exe` 安装程序 |
+
+Actions 产物保留 30 天。这些是方便体验的未签名测试构建，不是正式发布版；macOS 可能提示无法验证开发者，Windows 也可能显示 SmartScreen 提示。请只从本项目的 GitHub Actions 下载，并仅在信任项目来源时运行。当前通过 Actions 运行记录下载，不是 GitHub Releases。
 
 ### 运行开发版
 
@@ -188,8 +201,8 @@ notifications.json  通知开关、位置和持续时间
 
 | 平台 | 当前状态 | 说明 |
 | --- | --- | --- |
-| macOS | 本地开发、运行与构建已验证 | 支持来源应用识别、系统托盘、通知和开机启动 |
-| Windows | GitHub Actions 构建验证 | 使用 Windows 原生前台窗口和进程 API；发布前仍建议在真实设备手工验收 WebView2、通知和开机启动 |
+| macOS | 本地开发、运行与构建已验证 | Actions 提供 Apple Silicon 与 Intel 测试安装包；支持来源应用识别、系统托盘、通知和开机启动 |
+| Windows | GitHub Actions 构建验证 | Actions 提供 64 位 MSI 和 EXE 测试安装包；使用 Windows 原生前台窗口和进程 API，仍建议在真实设备验收 WebView2、通知和开机启动 |
 | Linux | GitHub Actions 检查与测试 | 来源应用识别依赖桌面环境，优先使用 `xdotool`；不同桌面环境需要继续实测 |
 
 ## 项目结构
@@ -216,7 +229,7 @@ miao-clip/
 - [x] 桌面提示、提示位置和持续时间设置
 - [x] 暂停监听、隐私模式和系统托盘后台运行
 - [x] 来源应用记录和开机启动
-- [x] macOS、Linux、Windows CI 检查与构建验证
+- [x] macOS、Linux、Windows CI 检查；macOS 和 Windows 测试安装包上传为 Actions 产物
 - [ ] 系统安全存储，减少敏感内容明文落盘
 - [ ] 全局快捷键与快速粘贴
 - [ ] 根据账号、域名和内容上下文提供可控推荐
