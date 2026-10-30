@@ -232,7 +232,7 @@
   }
 
   function makeEntry(text, time = new Date().toISOString(), id = null, sensitivity = "normal") {
-    const firstLine = text.split(/\r?\n/, 1)[0].trim();
+    const firstLine = text.replace(/\r\n?/g, "\n").split("\n").map((line) => line.trim()).find(Boolean) || "";
     const category = classifyText(text, sensitivity);
     return {
       id: id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,

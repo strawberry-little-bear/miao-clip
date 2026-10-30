@@ -230,7 +230,11 @@ fn preview(text: &str) -> String {
 
 fn notification_title(text: &str) -> String {
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let first_line = normalized.lines().next().unwrap_or_default().trim();
+    let first_line = normalized
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
     let mut chars = first_line.chars();
     let title: String = chars.by_ref().take(72).collect();
     if chars.next().is_some() {
@@ -1455,8 +1459,9 @@ mod tests {
 
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, NotificationSettings, build_toast_payload,
-        content_entry_id, decode_image_buffers, file_name, is_image_format, is_sensitive_text,
-        normalize_history, normalize_notification_settings, normalize_position,
+        content_entry_id, decode_image_buffers, file_name, history_entry_from_snapshot,
+        is_image_format, is_sensitive_text, normalize_history, normalize_notification_settings,
+        normalize_position, notification_title,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -1483,6 +1488,38 @@ mod tests {
         assert!(is_sensitive_text("ghp_exampletoken"));
         assert!(!is_sensitive_text("https://example.com/docs?tab=api"));
         assert!(!is_sensitive_text("这是普通的剪贴板内容"));
+    }
+
+    #[test]
+    fn skips_leading_blank_lines_for_history_and_notification_titles() {
+        let text = "\n \t\n  Actual title line  \nbody";
+        assert_eq!(notification_title(text), "Actual title line");
+
+        let snapshot = ClipboardSnapshot {
+            kind: "text",
+            sensitivity: "normal",
+            text: Some(text.to_string()),
+            preview: text.to_string(),
+            length: text.chars().count(),
+            entry_id: "text-title-test".to_string(),
+            source_app: "测试应用".to_string(),
+            persisted: false,
+            image_id: None,
+            image_width: None,
+            image_height: None,
+            files: None,
+            toast: None,
+        };
+        assert_eq!(
+            history_entry_from_snapshot(&snapshot).title,
+            "Actual title line"
+        );
+
+        let settings = Arc::new(RwLock::new(NotificationSettings::default()));
+        let capture_state = Arc::new(RwLock::new(CaptureState::default()));
+        let toast = build_toast_payload(&snapshot, &settings, &capture_state)
+            .expect("notification should be enabled");
+        assert_eq!(toast.message, "已复制：Actual title line");
     }
 
     #[test]
