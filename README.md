@@ -38,6 +38,17 @@
 
 妙夹保留剪贴板历史工具最重要的能力，但定位更克制：它是适合个人电脑的本地小工具，不以云同步、复杂脚本系统或大型自动化平台为目标。项目从产品设计、界面到实现均独立开发和维护。
 
+## 当前阶段
+
+妙夹目前处于 **可用性打磨阶段**：核心监听、持久化、通知、隐私模式、敏感内容保护、图片和文件复用已经完成，macOS 本地构建和 GitHub Actions 构建链路正在持续验证。
+
+下一轮开发会按这个顺序推进：
+
+1. **跨平台实测**：补充 Windows 真实设备验收，并继续覆盖 Linux 不同桌面环境下的剪贴板监听、通知和来源应用识别。
+2. **上下文推荐**：在用户复制账号、域名或登录表单相关内容后，提供可关闭、可确认的关联记录推荐，例如账号后推荐最近复制的密码；不会自动替用户填入或发送敏感内容。
+3. **历史管理**：增加更明确的标签、批量操作、自动清理和导出 / 导入能力，让本地历史更适合长期使用。
+4. **发布体验**：完善版本号、变更记录和 GitHub Releases，再把当前的 Actions 试用产物逐步过渡为正式发布包。
+
 ## 界面预览
 
 ### 收件箱：复制过的内容都有来处
@@ -127,7 +138,7 @@ GitHub Actions 会持续检查代码，并为 macOS 和 Windows 自动构建可�
 
 ### 下载试用版
 
-打开项目的 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml)，进入最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载对应平台的产物。macOS Apple Silicon、macOS Intel 和 Windows x64 已在 [2026 年 10 月 30 日的成功构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41014467772) 中验证并上传：
+打开项目的 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml)，进入最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载对应平台的产物。每次推送到 `main` 都会重新执行检查和构建，因此请优先选择最新的成功运行：
 
 | 产物 | 适用设备 | 文件 |
 | --- | --- | --- |
@@ -241,8 +252,10 @@ miao-clip/
 - [x] 来源应用记录和开机启动
 - [x] macOS、Linux、Windows CI 检查；macOS 和 Windows 测试安装包上传为 Actions 产物
 - [x] 系统安全存储，减少敏感内容明文落盘
-- [x] 全局快捷键与快速粘贴入口（⌘/Ctrl + Shift + Space）
+- [x] 全局快捷键与可关闭的快速粘贴入口（⌘/Ctrl + Shift + Space）
+- [ ] Windows 真实设备验收和 Linux 多桌面环境实测
 - [ ] 根据账号、域名和内容上下文提供可控推荐
+- [ ] 标签、批量操作、自动清理和导出 / 导入
 - [ ] 更完整的跨平台安装包发布流程
 
 ## 参与贡献
