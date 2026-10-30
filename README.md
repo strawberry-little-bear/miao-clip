@@ -119,7 +119,7 @@ GitHub Actions 会持续检查代码，并为 macOS 和 Windows 自动构建可�
 
 ### 下载试用版
 
-打开项目的 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml)，进入最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载对应平台的产物：
+打开项目的 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml)，进入最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载对应平台的产物。macOS Apple Silicon、macOS Intel 和 Windows x64 已在 [2026 年 10 月 30 日的成功构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41014467772) 中验证并上传：
 
 | 产物 | 适用设备 | 文件 |
 | --- | --- | --- |
@@ -201,8 +201,8 @@ notifications.json  通知开关、位置和持续时间
 
 | 平台 | 当前状态 | 说明 |
 | --- | --- | --- |
-| macOS | 本地开发、运行与构建已验证 | Actions 提供 Apple Silicon 与 Intel 测试安装包；支持来源应用识别、系统托盘、通知和开机启动 |
-| Windows | GitHub Actions 构建验证 | Actions 提供 64 位 MSI 和 EXE 测试安装包；使用 Windows 原生前台窗口和进程 API，仍建议在真实设备验收 WebView2、通知和开机启动 |
+| macOS | 本地运行与 GitHub Actions 构建已验证 | Actions 提供 Apple Silicon 与 Intel 测试安装包；支持来源应用识别、系统托盘、通知和开机启动 |
+| Windows | GitHub Actions 检查与构建已验证 | Actions 提供 64 位 MSI 和 EXE 测试安装包；使用 Windows 原生前台窗口和进程 API，仍建议在真实设备验收 WebView2、通知和开机启动 |
 | Linux | GitHub Actions 检查与测试 | 来源应用识别依赖桌面环境，优先使用 `xdotool`；不同桌面环境需要继续实测 |
 
 ## 项目结构
