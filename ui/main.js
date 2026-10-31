@@ -72,9 +72,14 @@
     copyProtected: document.getElementById("copy-protected"),
     categoryFilter: document.getElementById("category-filter"),
     sourceFilter: document.getElementById("source-filter"),
+    tagFilter: document.getElementById("tag-filter"),
     timeFilter: document.getElementById("time-filter"),
     dateFrom: document.getElementById("date-from"),
     dateTo: document.getElementById("date-to"),
+    tagEditor: document.getElementById("tag-editor"),
+    tagList: document.getElementById("tag-list"),
+    tagForm: document.getElementById("tag-form"),
+    tagInput: document.getElementById("tag-input"),
     enterSelection: document.getElementById("enter-selection"),
     exitSelection: document.getElementById("exit-selection"),
     bulkActions: document.getElementById("bulk-actions"),
@@ -291,6 +296,7 @@
       time,
       source_app: "未知应用",
       pinned: false,
+      tags: [],
     };
   }
 
@@ -315,6 +321,13 @@
     return { text: "文本", url: "URL", account: "账号", password: "密码", image: "图片", file: "文件" }[category] || "文本";
   }
 
+  function normalizeTags(tags) {
+    return [...new Set((Array.isArray(tags) ? tags : [])
+      .map((tag) => String(tag).trim().replace(/\s+/g, " ").slice(0, 24))
+      .filter(Boolean))]
+      .slice(0, 12);
+  }
+
   function maskedProtectedText() {
     return "********";
   }
@@ -331,6 +344,7 @@
       time: entry.time || new Date().toISOString(),
       source_app: entry.source_app || entry.sourceApp || "未知应用",
       pinned: Boolean(entry.pinned),
+      tags: normalizeTags(entry.tags),
       length: Number.isFinite(entry.length) ? entry.length : (entry.text || "").length,
       secret_ref: entry.secret_ref || null,
       title: titleForCategory(category, entry.title || ""),
@@ -433,6 +447,7 @@
     const query = elements.searchInput.value.trim().toLowerCase();
     const category = elements.categoryFilter.value;
     const source = elements.sourceFilter.value;
+    const tag = elements.tagFilter.value;
     const baseEntries = state.view === "favorites" ? state.entries.filter((entry) => entry.pinned) : state.view === "inbox" ? state.entries : [];
     const now = new Date();
     let from = null;
@@ -448,11 +463,12 @@
       to = elements.dateTo.value ? new Date(`${elements.dateTo.value}T23:59:59.999`) : null;
     }
     return baseEntries.filter((entry) => {
-      const searchable = `${entry.text || ""} ${(entry.files || []).join(" ")} ${entry.title} ${entry.source_app || ""} ${categoryLabel(entry.category)}`.toLowerCase();
+      const searchable = `${entry.text || ""} ${(entry.files || []).join(" ")} ${entry.title} ${entry.source_app || ""} ${categoryLabel(entry.category)} ${(entry.tags || []).join(" ")}`.toLowerCase();
       const time = new Date(entry.time);
       return (!query || searchable.includes(query))
         && (category === "all" || entry.category === category)
         && (source === "all" || entry.source_app === source)
+        && (tag === "all" || (entry.tags || []).includes(tag))
         && (!from || time >= from)
         && (!to || time <= to);
     });
@@ -467,6 +483,15 @@
     elements.sourceFilter.value = sources.includes(selectedSource) ? selectedSource : "all";
   }
 
+  function syncTagFilter() {
+    const selectedTag = elements.tagFilter.value;
+    const tags = [...new Set(state.entries.flatMap((entry) => entry.tags || []))]
+      .sort((left, right) => left.localeCompare(right, "zh-CN"));
+    elements.tagFilter.replaceChildren(new Option("全部标签", "all"));
+    tags.forEach((tag) => elements.tagFilter.add(new Option(tag, tag)));
+    elements.tagFilter.value = tags.includes(selectedTag) ? selectedTag : "all";
+  }
+
   function syncDateFilters() {
     const custom = elements.timeFilter.value === "custom";
     elements.dateFrom.hidden = !custom;
@@ -475,6 +500,7 @@
 
   function renderFeed() {
     syncSourceFilter();
+    syncTagFilter();
     const entries = visibleEntries();
     const entryIds = new Set(state.entries.map((entry) => entry.id));
     state.selectedIds.forEach((id) => {
@@ -501,10 +527,11 @@
       const summary = protectedEntry ? maskedProtectedText() : entry.kind === "图片"
         ? `${entry.image_width || 0} × ${entry.image_height || 0}`
         : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${(entry.text || "").length} 字符`;
+      const tags = (entry.tags || []).map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("");
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${protectedEntry ? " is-protected" : ""}`;
       if (state.selectionMode) card.classList.add("is-selection-mode");
       if (state.quickPasteMode && index === state.quickPasteIndex) card.classList.add("is-quick-selected");
-      card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small><small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
+      card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small><small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small><span class="feed-tags">${tags}</span></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
       card.querySelector(".entry-select").addEventListener("change", (event) => toggleEntrySelection(entry.id, event));
       card.querySelector(".feed-card-main").addEventListener("click", (event) => {
         if (!state.selectionMode) {
@@ -678,6 +705,69 @@
     }
   }
 
+  function renderTagEditor(entry) {
+    elements.tagEditor.hidden = !entry;
+    elements.tagList.replaceChildren();
+    elements.tagInput.value = "";
+    if (!entry) return;
+    (entry.tags || []).forEach((tag) => {
+      const chip = document.createElement("span");
+      chip.className = "tag-chip tag-chip-editable";
+      chip.innerHTML = `<span>${escapeHtml(tag)}</span><button type="button" aria-label="删除标签 ${escapeHtml(tag)}" title="删除标签">×</button>`;
+      chip.querySelector("button").addEventListener("click", () => removeTag(entry.id, tag));
+      elements.tagList.append(chip);
+    });
+  }
+
+  function cleanTag(value) {
+    return value.trim().replace(/\s+/g, " ").slice(0, 24);
+  }
+
+  async function addTag(event) {
+    event.preventDefault();
+    const entry = state.entries.find((candidate) => candidate.id === state.selectedId);
+    const tag = cleanTag(elements.tagInput.value);
+    if (!entry || !tag) return;
+    if ((entry.tags || []).includes(tag)) {
+      setMessage("这个标签已经存在。");
+      return;
+    }
+    const previousTags = [...(entry.tags || [])];
+    entry.tags = [...previousTags, tag].slice(0, 12);
+    elements.tagInput.value = "";
+    renderTagEditor(entry);
+    renderFeed();
+    try {
+      requireTauri();
+      await saveHistory();
+      setMessage(`已添加标签“${tag}”。`);
+    } catch (error) {
+      entry.tags = previousTags;
+      renderTagEditor(entry);
+      renderFeed();
+      setMessage(String(error));
+    }
+  }
+
+  async function removeTag(entryId, tag) {
+    const entry = state.entries.find((candidate) => candidate.id === entryId);
+    if (!entry) return;
+    const previousTags = [...(entry.tags || [])];
+    entry.tags = previousTags.filter((candidate) => candidate !== tag);
+    renderTagEditor(entry);
+    renderFeed();
+    try {
+      requireTauri();
+      await saveHistory();
+      setMessage(`已删除标签“${tag}”。`);
+    } catch (error) {
+      entry.tags = previousTags;
+      renderTagEditor(entry);
+      renderFeed();
+      setMessage(String(error));
+    }
+  }
+
   function resetDetail() {
     state.selectedId = null;
     state.selectedEntry = null;
@@ -688,6 +778,7 @@
     window.clearTimeout(state.revealTimer);
     elements.protectedControls.hidden = true;
     elements.copyProtected.disabled = true;
+    renderTagEditor(null);
     elements.detailHeading.textContent = "尚未选择";
     elements.contentKind.textContent = "空";
     elements.contentLength.textContent = "0 字符";
@@ -702,6 +793,7 @@
     if (!entry) return;
     state.selectedId = id;
     state.selectedEntry = entry;
+    renderTagEditor(entry);
     state.currentText = entry.category === "password" ? "" : (entry.text || "");
     elements.detailHeading.textContent = entry.title;
     elements.contentKind.textContent = categoryLabel(entry.category);
@@ -1085,6 +1177,7 @@
   });
   elements.revealProtected.addEventListener("click", revealProtectedEntry);
   elements.copyProtected.addEventListener("click", copyProtectedEntry);
+  elements.tagForm.addEventListener("submit", addTag);
   elements.notifyInApp.addEventListener("change", () => {
     const previousSettings = { ...state.notificationSettings };
     state.notificationSettings.inApp = elements.notifyInApp.checked;
@@ -1144,7 +1237,7 @@
       updateQuickPasteSelection();
     }
   });
-  [elements.categoryFilter, elements.sourceFilter, elements.timeFilter, elements.dateFrom, elements.dateTo].forEach((control) => control.addEventListener("input", () => {
+  [elements.categoryFilter, elements.sourceFilter, elements.tagFilter, elements.timeFilter, elements.dateFrom, elements.dateTo].forEach((control) => control.addEventListener("input", () => {
     clearSelectionBeforeFilterChange();
     renderFeed();
   }));

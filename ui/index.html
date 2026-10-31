@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f6f5f1" />
     <title>妙夹 · MiaoClip</title>
-    <link rel="stylesheet" href="style.css?v=18" />
+    <link rel="stylesheet" href="style.css?v=19" />
   </head>
   <body>
     <div class="app-frame">
@@ -56,6 +56,7 @@
             <div class="filter-bar" aria-label="筛选内容">
               <select id="category-filter" aria-label="按类型筛选"><option value="all">全部类型</option><option value="text">文本</option><option value="url">URL</option><option value="account">账号</option><option value="password">密码</option><option value="image">图片</option><option value="file">文件</option></select>
               <select id="source-filter" aria-label="按来源应用筛选"><option value="all">全部来源</option></select>
+              <select id="tag-filter" aria-label="按标签筛选"><option value="all">全部标签</option></select>
               <select id="time-filter" aria-label="按时间筛选"><option value="all">全部时间</option><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="custom">自定义</option></select>
               <input id="date-from" type="date" aria-label="开始日期" hidden />
               <input id="date-to" type="date" aria-label="结束日期" hidden />
@@ -84,6 +85,14 @@
               </div>
             </div>
             <div class="detail-meta"><span id="content-length">0 字符</span><span id="content-time">等待读取</span></div>
+            <div class="tag-editor" id="tag-editor" hidden>
+              <div class="tag-editor-heading"><span>标签</span><small>用于整理和筛选</small></div>
+              <div class="tag-list" id="tag-list"></div>
+              <form class="tag-form" id="tag-form">
+                <input id="tag-input" type="text" maxlength="24" placeholder="添加标签" autocomplete="off" />
+                <button class="quiet-button" type="submit">添加</button>
+              </form>
+            </div>
             <div class="detail-actions">
               <button class="action-tile" data-action="copy-entry" type="button"><span class="tile-icon">↗</span><span><strong>复制内容</strong><small>写回系统剪贴板</small></span></button>
               <button class="action-tile" data-action="format-json" type="button"><span class="tile-icon">{ }</span><span><strong>格式化 JSON</strong><small>整理结构并生成结果</small></span></button>
@@ -118,6 +127,6 @@
       </main>
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <script src="main.js?v=18"></script>
+    <script src="main.js?v=19"></script>
   </body>
 </html>

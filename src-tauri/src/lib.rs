@@ -81,6 +81,8 @@ struct HistoryEntry {
     #[serde(default)]
     pinned: bool,
     #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
     image_id: Option<String>,
     #[serde(default)]
     image_width: Option<u32>,
@@ -816,6 +818,7 @@ fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
         source_app: snapshot.source_app.clone(),
         category,
         pinned: false,
+        tags: Vec::new(),
         image_id: snapshot.image_id.clone(),
         image_width: snapshot.image_width,
         image_height: snapshot.image_height,
@@ -974,6 +977,7 @@ fn migrate_image_file_entry(app: &AppHandle, entry: HistoryEntry) -> HistoryEntr
         time: entry.time,
         category: "image".to_string(),
         pinned: entry.pinned,
+        tags: entry.tags,
         source_app: entry.source_app,
         image_id: Some(image_id),
         image_width: snapshot.image_width,
@@ -1799,10 +1803,11 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use super::{
-        CaptureState, ClipboardSnapshot, HistoryEntry, NotificationSettings, build_toast_payload,
-        content_entry_id, decode_image_buffers, file_name, history_entry_from_snapshot,
-        is_image_format, is_sensitive_text, normalize_history, normalize_notification_settings,
-        normalize_position, notification_title, prune_old_entries, sensitive_secret_ref,
+        CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
+        build_toast_payload, content_entry_id, decode_image_buffers, file_name,
+        history_entry_from_snapshot, is_image_format, is_sensitive_text, normalize_history,
+        normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
+        sensitive_secret_ref,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -1815,6 +1820,7 @@ mod tests {
             time: "2026-10-28T00:00:00.000Z".to_string(),
             category: "text".to_string(),
             pinned: false,
+            tags: Vec::new(),
             source_app: "测试应用".to_string(),
             image_id: None,
             image_width: None,
@@ -1922,6 +1928,26 @@ mod tests {
         assert!(serialized.contains("entry:text-secret"));
         assert!(!serialized.contains("password="));
         assert_eq!(sensitive_secret_ref("text-secret"), "entry:text-secret");
+    }
+
+    #[test]
+    fn legacy_history_without_tags_defaults_to_empty_tags() {
+        let history: HistoryFile = serde_json::from_str(
+            r#"{
+                "version": 1,
+                "entries": [{
+                    "id": "legacy-entry",
+                    "text": "legacy text",
+                    "length": 12,
+                    "title": "legacy text",
+                    "kind": "文本",
+                    "time": "2026-10-28T00:00:00.000Z"
+                }]
+            }"#,
+        )
+        .expect("legacy history should deserialize");
+
+        assert!(history.entries[0].tags.is_empty());
     }
 
     #[test]

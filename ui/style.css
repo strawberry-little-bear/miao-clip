@@ -105,6 +105,17 @@ h2 { font-size: 17px; font-weight: 760; }
 .filter-bar { display: flex; flex-wrap: wrap; gap: 7px; margin: 14px 0 10px; }
 .filter-bar select, .filter-bar input { min-width: 104px; max-width: 100%; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--paper); font-size: 11px; }
 .filter-bar input { min-width: 126px; }
+.tag-editor { margin: 0 0 18px; padding: 12px; border: 1px solid #ecebe5; border-radius: 7px; background: #faf9f5; }
+.tag-editor[hidden] { display: none; }
+.tag-editor-heading { display: flex; justify-content: space-between; gap: 10px; color: #6f756f; font-size: 11px; font-weight: 700; }
+.tag-editor-heading small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.tag-list { display: flex; flex-wrap: wrap; gap: 5px; min-height: 24px; margin: 9px 0; }
+.tag-form { display: flex; gap: 7px; }
+.tag-form input { min-width: 0; flex: 1; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: #fff; font-size: 11px; }
+.tag-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 7px; border-radius: 4px; color: #41635f; background: #e7f1ed; font-size: 10px; overflow-wrap: anywhere; }
+.tag-chip button { padding: 0; border: 0; color: #6c827b; background: transparent; cursor: pointer; font-size: 13px; line-height: 1; }
+.tag-chip button:hover { color: #a25448; }
+.feed-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .protected-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: #8a6d3b; font-size: 10px; line-height: 1.45; }
 .protected-controls[hidden] { display: none; }
 .protected-actions { display: flex; flex: none; align-items: center; gap: 6px; }
