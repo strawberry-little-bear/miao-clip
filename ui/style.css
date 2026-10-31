@@ -170,6 +170,8 @@ h2 { font-size: 17px; font-weight: 760; }
 .setting-controls select { min-width: 88px; }
 .setting-row-cleanup { align-items: flex-start; }
 .setting-row-cleanup .setting-controls { padding-top: 2px; }
+.setting-row-backup { align-items: flex-start; }
+.setting-row-backup .setting-controls { padding-top: 2px; }
 .setting-row-warning strong { color: #8a5f28; }
 .settings-note { margin-top: 18px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 @media (min-width: 821px) {
@@ -232,6 +234,7 @@ h2 { font-size: 17px; font-weight: 760; }
   .bulk-actions .quiet-button { flex: 1; }
   .detail-column { padding: 16px; }
   .setting-row-cleanup { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .setting-row-backup { align-items: flex-start; flex-direction: column; gap: 10px; }
   .setting-controls { width: 100%; }
   .setting-controls { flex-wrap: wrap; max-width: 100%; }
   .setting-controls select, .setting-controls button { flex: 1 1 120px; }

@@ -122,12 +122,13 @@
             <label class="setting-row"><span><strong>提示框持续时间</strong><small>控制桌面浮层和妙夹窗口内提示显示多久，时间到后会自动消失。</small></span><select id="notify-duration"><option value="1500">1.5 秒</option><option value="2500">2.5 秒</option><option value="3000" selected>3 秒</option><option value="5000">5 秒</option><option value="8000">8 秒</option><option value="15000">15 秒</option></select></label>
             <label class="setting-row setting-row-warning"><span><strong>自动清理历史</strong><small>按下面的保留时间自动清理未收藏记录；收藏内容永远保留。默认关闭，开启后会在后台执行。</small></span><input id="cleanup-enabled" type="checkbox" /></label>
             <div class="setting-row setting-row-cleanup"><span><strong>清理规则</strong><small>自动清理只处理超过保留时间且未收藏的内容；图片和敏感正文也会同步清理。</small></span><div class="setting-controls"><select id="cleanup-days" aria-label="历史保留时间"><option value="1">保留 1 天</option><option value="3">保留 3 天</option><option value="7">保留 7 天</option><option value="14">保留 14 天</option><option value="30" selected>保留 30 天</option><option value="60">保留 60 天</option><option value="90">保留 90 天</option><option value="180">保留 180 天</option><option value="365">保留 1 年</option></select><select id="cleanup-schedule" aria-label="自动清理频率"><option value="startup">每次启动时</option><option value="daily">每天</option><option value="weekly">每周</option></select><button class="quiet-button danger-button" id="cleanup-old-history" type="button">立即清理</button></div></div>
+            <div class="setting-row setting-row-backup"><span><strong>历史备份</strong><small>导出或导入本机历史，导入会与现有内容合并；敏感内容只保留遮罩后的记录信息，不会写入密码原文。</small></span><div class="setting-controls"><button class="quiet-button" id="export-history" type="button">导出历史</button><button class="quiet-button" id="import-history" type="button">导入历史</button></div></div>
           </div>
-          <p class="settings-note" id="settings-note">通知设置只保存在本机。</p>
+          <p class="settings-note" id="settings-note">通知设置只保存在本机。备份文件仍可能包含普通文本、URL、文件路径和图片，请妥善保管。</p>
         </section>
       </main>
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <script src="main.js?v=20"></script>
+    <script src="main.js?v=21"></script>
   </body>
 </html>

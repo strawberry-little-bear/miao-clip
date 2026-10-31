@@ -37,6 +37,7 @@ const DEFAULT_NOTIFICATION_DURATION_MS: u64 = 3_000;
 const MIN_NOTIFICATION_DURATION_MS: u64 = 1_000;
 const MAX_NOTIFICATION_DURATION_MS: u64 = 30_000;
 const HISTORY_FILE_VERSION: u8 = 2;
+const HISTORY_EXPORT_VERSION: u8 = 1;
 const KEYRING_SERVICE: &str = "miao-clip";
 const QUICK_PASTE_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 
@@ -106,6 +107,33 @@ fn default_source_app() -> String {
 struct HistoryFile {
     version: u8,
     entries: Vec<HistoryEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct HistoryExportFile {
+    version: u8,
+    exported_at: String,
+    entries: Vec<HistoryEntry>,
+    images: Vec<HistoryExportImage>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct HistoryExportImage {
+    id: String,
+    png_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HistoryExportResult {
+    exported_count: usize,
+    image_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HistoryImportResult {
+    imported_count: usize,
+    skipped_count: usize,
+    total_count: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -746,6 +774,7 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
             && entry.image_id.is_none()
             && entry.files.is_none()
             && entry.secret_ref.is_none()
+            && entry.category != "password"
         {
             continue;
         }
@@ -938,6 +967,228 @@ fn write_history_entries(app: &AppHandle, entries: &[HistoryEntry]) -> Result<()
     protect_sensitive_entries(&mut entries)?;
     write_history_file(app, &entries)?;
     prune_images(app, &entries)
+}
+
+fn valid_image_id(image_id: &str) -> bool {
+    image_id.len() == 64 && image_id.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn export_history_to_path(
+    app: &AppHandle,
+    history_lock: &Arc<Mutex<()>>,
+    path: &Path,
+) -> Result<HistoryExportResult, String> {
+    let _guard = history_lock
+        .lock()
+        .map_err(|_| "无法锁定本地历史。".to_string())?;
+    let entries: Vec<HistoryEntry> = read_history_entries(app)?
+        .into_iter()
+        .map(|entry| migrate_image_file_entry(app, entry))
+        .collect();
+    let mut exported_entries = Vec::with_capacity(entries.len());
+    let mut images = Vec::new();
+
+    for mut entry in entries {
+        // Sensitive text is already removed by read_history_entries. Remove the
+        // device-local keychain reference as well so the backup stays portable.
+        if entry.category == "password" {
+            entry.text.clear();
+            entry.secret_ref = None;
+        }
+        if let Some(image_id) = entry.image_id.as_deref() {
+            if !valid_image_id(image_id) {
+                return Err("历史中存在无效图片标识，无法导出。".to_string());
+            }
+            let image_path = image_directory(app)?.join(format!("{image_id}.png"));
+            let bytes = fs::read(&image_path)
+                .map_err(|error| format!("无法读取历史图片 {}：{error}", image_id))?;
+            images.push(HistoryExportImage {
+                id: image_id.to_string(),
+                png_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+            });
+        }
+        exported_entries.push(entry);
+    }
+
+    let export = HistoryExportFile {
+        version: HISTORY_EXPORT_VERSION,
+        exported_at: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+        entries: exported_entries,
+        images,
+    };
+    let contents = serde_json::to_string_pretty(&export)
+        .map_err(|error| format!("无法生成历史备份：{error}"))?;
+    fs::write(path, contents).map_err(|error| format!("无法写入历史备份：{error}"))?;
+
+    Ok(HistoryExportResult {
+        exported_count: export.entries.len(),
+        image_count: export.images.len(),
+    })
+}
+
+fn import_history_from_path(
+    app: &AppHandle,
+    history_lock: &Arc<Mutex<()>>,
+    path: &Path,
+) -> Result<HistoryImportResult, String> {
+    let _guard = history_lock
+        .lock()
+        .map_err(|_| "无法锁定本地历史。".to_string())?;
+    let contents =
+        fs::read_to_string(path).map_err(|error| format!("无法读取历史备份：{error}"))?;
+    let export: HistoryExportFile =
+        serde_json::from_str(&contents).map_err(|error| format!("历史备份格式无效：{error}"))?;
+    if export.version != HISTORY_EXPORT_VERSION {
+        return Err(format!("不支持的历史备份版本：{}。", export.version));
+    }
+
+    let mut skipped_count = 0;
+    let mut imported_images = HashSet::new();
+    for image in export.images {
+        if !valid_image_id(&image.id) {
+            skipped_count += 1;
+            continue;
+        }
+        let bytes = match base64::engine::general_purpose::STANDARD.decode(image.png_base64) {
+            Ok(bytes) if bytes.len() <= MAX_FILE_PREVIEW_BYTES as usize => bytes,
+            _ => {
+                skipped_count += 1;
+                continue;
+            }
+        };
+        let actual_id = format!("{:x}", Sha256::digest(&bytes));
+        if actual_id != image.id {
+            skipped_count += 1;
+            continue;
+        }
+        let destination = image_directory(app)?.join(format!("{}.png", image.id));
+        if !destination.exists() {
+            fs::write(destination, bytes).map_err(|error| format!("无法恢复历史图片：{error}"))?;
+        }
+        imported_images.insert(image.id);
+    }
+
+    let previous_entries = read_history_entries(app)?;
+    let existing_images: HashSet<String> = previous_entries
+        .iter()
+        .filter_map(|entry| entry.image_id.clone())
+        .filter(|image_id| {
+            image_directory(app)
+                .ok()
+                .is_some_and(|directory| directory.join(format!("{image_id}.png")).is_file())
+        })
+        .collect();
+    let mut accepted_entries = Vec::with_capacity(export.entries.len());
+    for mut entry in export.entries {
+        if entry.id.trim().is_empty() {
+            skipped_count += 1;
+            continue;
+        }
+        if let Some(image_id) = entry.image_id.as_deref() {
+            if !valid_image_id(image_id)
+                || (!imported_images.contains(image_id) && !existing_images.contains(image_id))
+            {
+                skipped_count += 1;
+                continue;
+            }
+        }
+        // The export format deliberately never carries sensitive references or
+        // plaintext. Keep the record as masked metadata on this device.
+        if entry.category == "password" {
+            entry.text.clear();
+            entry.secret_ref = None;
+        }
+        accepted_entries.push(entry);
+    }
+
+    let imported_count = accepted_entries.len();
+    let previous_entries_for_cleanup = previous_entries.clone();
+    let mut merged_entries = previous_entries;
+    merged_entries.extend(accepted_entries);
+    let entries = normalize_history(merged_entries);
+    write_history_entries(app, &entries)?;
+    cleanup_removed_sensitive_secrets(&previous_entries_for_cleanup, &entries);
+
+    Ok(HistoryImportResult {
+        imported_count,
+        skipped_count,
+        total_count: entries.len(),
+    })
+}
+
+#[tauri::command]
+fn request_export_history(app: AppHandle, state: State<'_, RuntimeState>) -> Result<(), String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let history_lock = state.history_lock.clone();
+    let callback_app = app.clone();
+    app.dialog()
+        .file()
+        .set_title("导出妙夹历史")
+        .set_file_name("miao-clip-history.json")
+        .add_filter("妙夹历史备份", &["json"])
+        .save_file(move |file_path| {
+            let Some(file_path) = file_path else {
+                let _ = callback_app.emit("history-export-cancelled", ());
+                return;
+            };
+            let path = match file_path.into_path() {
+                Ok(path) => path,
+                Err(error) => {
+                    let _ = callback_app.emit(
+                        "history-export-failed",
+                        format!("无法读取导出位置：{error}"),
+                    );
+                    return;
+                }
+            };
+            match export_history_to_path(&callback_app, &history_lock, &path) {
+                Ok(result) => {
+                    let _ = callback_app.emit("history-exported", result);
+                }
+                Err(error) => {
+                    let _ = callback_app.emit("history-export-failed", error);
+                }
+            }
+        });
+    Ok(())
+}
+
+#[tauri::command]
+fn request_import_history(app: AppHandle, state: State<'_, RuntimeState>) -> Result<(), String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let history_lock = state.history_lock.clone();
+    let callback_app = app.clone();
+    app.dialog()
+        .file()
+        .set_title("导入妙夹历史")
+        .add_filter("妙夹历史备份", &["json"])
+        .pick_file(move |file_path| {
+            let Some(file_path) = file_path else {
+                let _ = callback_app.emit("history-import-cancelled", ());
+                return;
+            };
+            let path = match file_path.into_path() {
+                Ok(path) => path,
+                Err(error) => {
+                    let _ = callback_app.emit(
+                        "history-import-failed",
+                        format!("无法读取导入位置：{error}"),
+                    );
+                    return;
+                }
+            };
+            match import_history_from_path(&callback_app, &history_lock, &path) {
+                Ok(result) => {
+                    let _ = callback_app.emit("history-imported", result);
+                }
+                Err(error) => {
+                    let _ = callback_app.emit("history-import-failed", error);
+                }
+            }
+        });
+    Ok(())
 }
 
 fn cleanup_removed_sensitive_secrets(previous: &[HistoryEntry], current: &[HistoryEntry]) {
@@ -1718,6 +1969,7 @@ fn prune_images(app: &AppHandle, entries: &[HistoryEntry]) -> Result<(), String>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -1883,6 +2135,8 @@ pub fn run() {
             place_clipboard_toast,
             read_clipboard,
             reveal_sensitive_entry,
+            request_export_history,
+            request_import_history,
             save_history,
             set_capture_state,
             set_autostart_enabled,
@@ -1908,6 +2162,7 @@ mod tests {
         history_entry_from_snapshot, is_image_format, is_sensitive_text,
         normalize_cleanup_schedule, normalize_history, normalize_notification_settings,
         normalize_position, notification_title, prune_old_entries, sensitive_secret_ref,
+        valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -2123,6 +2378,28 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].id, "1");
         assert_eq!(entries[1].id, "3");
+    }
+
+    #[test]
+    fn keeps_masked_password_metadata_without_plaintext_or_secret_reference() {
+        let mut password = entry("password-1", "");
+        password.category = "password".to_string();
+        password.kind = "文本".to_string();
+        password.title = "密码信息".to_string();
+
+        let entries = normalize_history(vec![password]);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].category, "password");
+        assert!(entries[0].text.is_empty());
+        assert!(entries[0].secret_ref.is_none());
+    }
+
+    #[test]
+    fn validates_exported_image_identifiers() {
+        assert!(valid_image_id(&"a".repeat(64)));
+        assert!(!valid_image_id(&"a".repeat(63)));
+        assert!(!valid_image_id(&format!("{}g", "a".repeat(63))));
     }
 
     #[test]

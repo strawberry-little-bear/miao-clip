@@ -72,6 +72,8 @@
     cleanupDays: document.getElementById("cleanup-days"),
     cleanupSchedule: document.getElementById("cleanup-schedule"),
     cleanupOldHistory: document.getElementById("cleanup-old-history"),
+    exportHistory: document.getElementById("export-history"),
+    importHistory: document.getElementById("import-history"),
     protectedControls: document.getElementById("protected-controls"),
     revealProtected: document.getElementById("reveal-protected"),
     copyProtected: document.getElementById("copy-protected"),
@@ -293,6 +295,32 @@
       setMessage(String(error));
     } finally {
       elements.cleanupOldHistory.disabled = false;
+    }
+  }
+
+  async function requestHistoryExport() {
+    elements.exportHistory.disabled = true;
+    elements.settingsNote.textContent = "请选择历史备份的保存位置…";
+    try {
+      requireTauri();
+      await invoke("request_export_history");
+    } catch (error) {
+      elements.settingsNote.textContent = `导出失败：${error}`;
+      elements.exportHistory.disabled = false;
+      setMessage(String(error));
+    }
+  }
+
+  async function requestHistoryImport() {
+    elements.importHistory.disabled = true;
+    elements.settingsNote.textContent = "请选择要导入的妙夹历史备份…";
+    try {
+      requireTauri();
+      await invoke("request_import_history");
+    } catch (error) {
+      elements.settingsNote.textContent = `导入失败：${error}`;
+      elements.importHistory.disabled = false;
+      setMessage(String(error));
     }
   }
 
@@ -1107,6 +1135,42 @@
           setMessage(`自动清理了 ${removed} 条未收藏历史。`);
         }
       });
+      await listen("history-exported", ({ payload }) => {
+        const count = Number(payload?.exported_count ?? payload?.exportedCount ?? 0);
+        const imageCount = Number(payload?.image_count ?? payload?.imageCount ?? 0);
+        elements.exportHistory.disabled = false;
+        elements.settingsNote.textContent = `已导出 ${count} 条历史${imageCount ? `，包含 ${imageCount} 张图片` : ""}。敏感原文未写入备份。`;
+        setMessage("历史备份已导出。请妥善保管备份文件。");
+      });
+      await listen("history-export-cancelled", () => {
+        elements.exportHistory.disabled = false;
+        elements.settingsNote.textContent = "已取消历史导出。";
+      });
+      await listen("history-export-failed", ({ payload }) => {
+        elements.exportHistory.disabled = false;
+        elements.settingsNote.textContent = `导出失败：${payload || "未知错误"}`;
+        setMessage(String(payload || "历史导出失败。"));
+      });
+      await listen("history-imported", async ({ payload }) => {
+        const imported = Number(payload?.imported_count ?? payload?.importedCount ?? 0);
+        const skipped = Number(payload?.skipped_count ?? payload?.skippedCount ?? 0);
+        elements.importHistory.disabled = false;
+        await loadHistory();
+        if (state.selectedId && !state.entries.some((entry) => entry.id === state.selectedId)) {
+          resetDetail();
+        }
+        elements.settingsNote.textContent = `已合并 ${imported} 条历史${skipped ? `，跳过 ${skipped} 项无效内容` : ""}。`;
+        setMessage(`历史备份已导入，新增或合并 ${imported} 条记录。`);
+      });
+      await listen("history-import-failed", ({ payload }) => {
+        elements.importHistory.disabled = false;
+        elements.settingsNote.textContent = `导入失败：${payload || "未知错误"}`;
+        setMessage(String(payload || "历史导入失败。"));
+      });
+      await listen("history-import-cancelled", () => {
+        elements.importHistory.disabled = false;
+        elements.settingsNote.textContent = "已取消历史导入。";
+      });
       await listen("clipboard-changed", ({ payload }) => {
         if (state.captureState.paused || state.captureState.privacyMode) return;
         if (!payload || payload.kind === "other") {
@@ -1267,6 +1331,8 @@
     }
   });
   elements.cleanupOldHistory.addEventListener("click", cleanupOldHistory);
+  elements.exportHistory.addEventListener("click", requestHistoryExport);
+  elements.importHistory.addEventListener("click", requestHistoryImport);
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
   }
