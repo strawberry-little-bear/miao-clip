@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use arboard::{Clipboard, ImageData};
 use base64::Engine;
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use clipboard_master::{CallbackResult, ClipboardHandler, Master};
 use clipboard_rs::common::RustImage;
 use clipboard_rs::{Clipboard as ClipboardFormats, ClipboardContext, RustImageData};
@@ -109,6 +109,12 @@ struct HistoryFile {
 #[derive(Debug, Serialize)]
 struct HistorySaveResult {
     saved_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct HistoryCleanupResult {
+    removed_count: usize,
+    remaining_count: usize,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -736,6 +742,28 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
     }
 
     normalized
+}
+
+fn prune_old_entries(
+    entries: Vec<HistoryEntry>,
+    cutoff: DateTime<Utc>,
+) -> (Vec<HistoryEntry>, usize) {
+    let mut retained = Vec::with_capacity(entries.len());
+    let mut removed_count = 0;
+
+    for entry in entries {
+        let is_old = DateTime::parse_from_rfc3339(&entry.time)
+            .map(|time| time.with_timezone(&Utc) < cutoff)
+            .unwrap_or(false);
+
+        if is_old && !entry.pinned {
+            removed_count += 1;
+        } else {
+            retained.push(entry);
+        }
+    }
+
+    (retained, removed_count)
 }
 
 fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
@@ -1603,6 +1631,32 @@ fn clear_history(app: AppHandle, state: State<'_, RuntimeState>) -> Result<(), S
     }
 }
 
+#[tauri::command]
+fn cleanup_old_history(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+    days: u64,
+) -> Result<HistoryCleanupResult, String> {
+    let days = days.clamp(1, 3650);
+    let _guard = state
+        .history_lock
+        .lock()
+        .map_err(|_| "无法锁定本地历史。".to_string())?;
+    let previous_entries = read_history_entries(&app)?;
+    let cutoff = Utc::now() - ChronoDuration::days(days as i64);
+    let (entries, removed_count) = prune_old_entries(previous_entries.clone(), cutoff);
+
+    if removed_count > 0 {
+        write_history_entries(&app, &entries)?;
+        cleanup_removed_sensitive_secrets(&previous_entries, &entries);
+    }
+
+    Ok(HistoryCleanupResult {
+        removed_count,
+        remaining_count: entries.len(),
+    })
+}
+
 fn prune_images(app: &AppHandle, entries: &[HistoryEntry]) -> Result<(), String> {
     let directory = image_directory(app)?;
     let retained: HashSet<&str> = entries
@@ -1710,6 +1764,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             clear_history,
+            cleanup_old_history,
             clean_text,
             format_json,
             get_capture_state,
@@ -1740,13 +1795,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{TimeZone, Utc};
     use std::sync::{Arc, RwLock};
 
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, NotificationSettings, build_toast_payload,
         content_entry_id, decode_image_buffers, file_name, history_entry_from_snapshot,
         is_image_format, is_sensitive_text, normalize_history, normalize_notification_settings,
-        normalize_position, notification_title, sensitive_secret_ref,
+        normalize_position, notification_title, prune_old_entries, sensitive_secret_ref,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -1766,6 +1822,47 @@ mod tests {
             files: None,
             secret_ref: None,
         }
+    }
+
+    #[test]
+    fn cleanup_removes_only_old_unpinned_entries() {
+        let cutoff = Utc
+            .with_ymd_and_hms(2026, 10, 31, 12, 0, 0)
+            .single()
+            .expect("valid cutoff");
+        let mut old = entry("old", "old");
+        old.time = "2026-10-01T12:00:00Z".to_string();
+        let mut pinned = entry("pinned", "pinned");
+        pinned.time = "2026-10-01T12:00:00Z".to_string();
+        pinned.pinned = true;
+        let mut recent = entry("recent", "recent");
+        recent.time = "2026-11-01T12:00:00Z".to_string();
+
+        let (retained, removed_count) = prune_old_entries(vec![old, pinned, recent], cutoff);
+
+        assert_eq!(removed_count, 1);
+        assert_eq!(
+            retained
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pinned", "recent"]
+        );
+    }
+
+    #[test]
+    fn cleanup_keeps_entries_with_invalid_dates() {
+        let cutoff = Utc
+            .with_ymd_and_hms(2026, 10, 31, 12, 0, 0)
+            .single()
+            .expect("valid cutoff");
+        let mut invalid = entry("invalid", "invalid");
+        invalid.time = "not-a-date".to_string();
+
+        let (retained, removed_count) = prune_old_entries(vec![invalid], cutoff);
+
+        assert_eq!(removed_count, 0);
+        assert_eq!(retained.len(), 1);
     }
 
     #[test]

@@ -155,6 +155,10 @@ h2 { font-size: 17px; font-weight: 760; }
 .setting-row small { max-width: 560px; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .setting-row input { flex: 0 0 auto; width: 18px; height: 18px; accent-color: var(--blue); }
 .setting-row select { flex: 0 0 auto; min-width: 96px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--paper); font-size: 11px; }
+.setting-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.setting-controls select { min-width: 88px; }
+.setting-row-cleanup { align-items: flex-start; }
+.setting-row-cleanup .setting-controls { padding-top: 2px; }
 .setting-row-warning strong { color: #8a5f28; }
 .settings-note { margin-top: 18px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 @media (min-width: 821px) {
@@ -216,6 +220,9 @@ h2 { font-size: 17px; font-weight: 760; }
   .bulk-selection-count { flex-basis: 100%; }
   .bulk-actions .quiet-button { flex: 1; }
   .detail-column { padding: 16px; }
+  .setting-row-cleanup { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .setting-controls { width: 100%; }
+  .setting-controls select, .setting-controls button { flex: 1; }
   .detail-actions { grid-template-columns: 1fr; }
   .detail-meta { flex-wrap: wrap; }
   .feed-card-main { grid-template-columns: auto minmax(0, 1fr); }

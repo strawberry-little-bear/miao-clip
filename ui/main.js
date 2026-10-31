@@ -65,6 +65,8 @@
     monitorToggle: document.getElementById("monitor-toggle"),
     settingsNote: document.getElementById("settings-note"),
     launchAtLogin: document.getElementById("launch-at-login"),
+    cleanupDays: document.getElementById("cleanup-days"),
+    cleanupOldHistory: document.getElementById("cleanup-old-history"),
     protectedControls: document.getElementById("protected-controls"),
     revealProtected: document.getElementById("reveal-protected"),
     copyProtected: document.getElementById("copy-protected"),
@@ -242,6 +244,33 @@
       syncNotificationControls();
       elements.settingsNote.textContent = "保存失败，已恢复上次设置。";
       setMessage(String(error));
+    }
+  }
+
+  async function cleanupOldHistory() {
+    const days = Number(elements.cleanupDays.value);
+    const confirmed = window.confirm(`确认清理 ${days} 天前未收藏的历史吗？收藏内容会保留，此操作无法撤销。`);
+    if (!confirmed) return;
+
+    elements.cleanupOldHistory.disabled = true;
+    elements.settingsNote.textContent = "正在清理旧历史…";
+    try {
+      requireTauri();
+      const result = await invoke("cleanup_old_history", { days });
+      await loadHistory();
+      if (state.selectedId && !state.entries.some((entry) => entry.id === state.selectedId)) {
+        resetDetail();
+      }
+      const removed = Number(result?.removed_count ?? result?.removedCount ?? 0);
+      elements.settingsNote.textContent = removed
+        ? `已清理 ${removed} 条旧历史，收藏内容已保留。`
+        : `没有找到超过 ${days} 天的未收藏历史。`;
+      setMessage(removed ? `已清理 ${removed} 条旧历史。` : "没有需要清理的旧历史。");
+    } catch (error) {
+      elements.settingsNote.textContent = `清理失败：${error}`;
+      setMessage(String(error));
+    } finally {
+      elements.cleanupOldHistory.disabled = false;
     }
   }
 
@@ -1102,6 +1131,7 @@
       elements.launchAtLogin.disabled = false;
     }
   });
+  elements.cleanupOldHistory.addEventListener("click", cleanupOldHistory);
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
   }
