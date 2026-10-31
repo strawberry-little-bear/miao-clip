@@ -50,10 +50,10 @@
 
 <table>
   <tr>
-    <td width="25%"><strong>📥 自动收集</strong><br />后台监听复制内容，文本、URL、账号、图片和文件都能留下。</td>
-    <td width="25%"><strong>🗂️ 本地整理</strong><br />按类型、来源应用和完整日期筛选，收藏或批量处理历史。</td>
-    <td width="25%"><strong>👁️ 安全查看</strong><br />敏感内容默认遮罩，按需显示或复制原文。</td>
-    <td width="25%"><strong>⚡ 快速复用</strong><br />再次复制内容，或用快速粘贴入口键盘操作。</td>
+    <td width="25%"><strong>自动收集</strong><br />后台监听复制内容，文本、URL、账号、图片和文件都能留下。</td>
+    <td width="25%"><strong>本地整理</strong><br />按类型、来源应用和完整日期筛选，收藏或批量处理历史。</td>
+    <td width="25%"><strong>安全查看</strong><br />敏感内容默认遮罩，按需显示或复制原文。</td>
+    <td width="25%"><strong>快速复用</strong><br />再次复制内容，或用快速粘贴入口键盘操作。</td>
   </tr>
 </table>
 
