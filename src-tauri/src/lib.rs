@@ -113,7 +113,7 @@ struct HistorySaveResult {
     saved_count: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct HistoryCleanupResult {
     removed_count: usize,
     remaining_count: usize,
@@ -129,6 +129,12 @@ struct NotificationSettings {
     position: String,
     #[serde(default = "default_notification_duration_ms")]
     duration_ms: u64,
+    #[serde(default)]
+    cleanup_enabled: bool,
+    #[serde(default = "default_cleanup_days")]
+    cleanup_days: u64,
+    #[serde(default = "default_cleanup_schedule")]
+    cleanup_schedule: String,
 }
 
 fn default_notification_duration_ms() -> u64 {
@@ -137,6 +143,14 @@ fn default_notification_duration_ms() -> u64 {
 
 fn default_quick_paste_enabled() -> bool {
     true
+}
+
+fn default_cleanup_days() -> u64 {
+    30
+}
+
+fn default_cleanup_schedule() -> String {
+    "startup".to_string()
 }
 
 impl Default for NotificationSettings {
@@ -148,6 +162,9 @@ impl Default for NotificationSettings {
             quick_paste_enabled: true,
             position: "bottom-right".to_string(),
             duration_ms: DEFAULT_NOTIFICATION_DURATION_MS,
+            cleanup_enabled: false,
+            cleanup_days: default_cleanup_days(),
+            cleanup_schedule: default_cleanup_schedule(),
         }
     }
 }
@@ -620,11 +637,20 @@ fn normalize_position(position: &str) -> String {
     }
 }
 
+fn normalize_cleanup_schedule(schedule: &str) -> String {
+    match schedule {
+        "startup" | "daily" | "weekly" => schedule.to_string(),
+        _ => default_cleanup_schedule(),
+    }
+}
+
 fn normalize_notification_settings(mut settings: NotificationSettings) -> NotificationSettings {
     settings.position = normalize_position(&settings.position);
     settings.duration_ms = settings
         .duration_ms
         .clamp(MIN_NOTIFICATION_DURATION_MS, MAX_NOTIFICATION_DURATION_MS);
+    settings.cleanup_days = settings.cleanup_days.clamp(1, 3650);
+    settings.cleanup_schedule = normalize_cleanup_schedule(&settings.cleanup_schedule);
     settings
 }
 
@@ -1635,23 +1661,21 @@ fn clear_history(app: AppHandle, state: State<'_, RuntimeState>) -> Result<(), S
     }
 }
 
-#[tauri::command]
-fn cleanup_old_history(
-    app: AppHandle,
-    state: State<'_, RuntimeState>,
+fn cleanup_old_history_entries(
+    app: &AppHandle,
+    history_lock: &Arc<Mutex<()>>,
     days: u64,
 ) -> Result<HistoryCleanupResult, String> {
     let days = days.clamp(1, 3650);
-    let _guard = state
-        .history_lock
+    let _guard = history_lock
         .lock()
         .map_err(|_| "无法锁定本地历史。".to_string())?;
-    let previous_entries = read_history_entries(&app)?;
+    let previous_entries = read_history_entries(app)?;
     let cutoff = Utc::now() - ChronoDuration::days(days as i64);
     let (entries, removed_count) = prune_old_entries(previous_entries.clone(), cutoff);
 
     if removed_count > 0 {
-        write_history_entries(&app, &entries)?;
+        write_history_entries(app, &entries)?;
         cleanup_removed_sensitive_secrets(&previous_entries, &entries);
     }
 
@@ -1659,6 +1683,15 @@ fn cleanup_old_history(
         removed_count,
         remaining_count: entries.len(),
     })
+}
+
+#[tauri::command]
+fn cleanup_old_history(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+    days: u64,
+) -> Result<HistoryCleanupResult, String> {
+    cleanup_old_history_entries(&app, &state.history_lock, days)
 }
 
 fn prune_images(app: &AppHandle, entries: &[HistoryEntry]) -> Result<(), String> {
@@ -1720,6 +1753,73 @@ pub fn run() {
                 history_lock: history_lock.clone(),
                 suppressed_entries: suppressed_entries.clone(),
             });
+
+            let cleanup_app = app.handle().clone();
+            let cleanup_settings = notification_settings.clone();
+            let cleanup_history_lock = history_lock.clone();
+            std::thread::Builder::new()
+                .name("history-cleanup".to_string())
+                .spawn(move || {
+                    let mut last_run: Option<Instant> = None;
+                    let mut last_schedule = String::new();
+
+                    loop {
+                        let settings = match cleanup_settings.read() {
+                            Ok(settings) => settings.clone(),
+                            Err(_) => {
+                                log::warn!("无法读取自动清理设置。");
+                                thread::sleep(Duration::from_secs(60));
+                                continue;
+                            }
+                        };
+
+                        if !settings.cleanup_enabled {
+                            last_run = None;
+                            last_schedule.clear();
+                            thread::sleep(Duration::from_secs(60));
+                            continue;
+                        }
+
+                        if last_schedule != settings.cleanup_schedule {
+                            last_schedule = settings.cleanup_schedule.clone();
+                            last_run = None;
+                        }
+
+                        let should_run = match last_run {
+                            None => true,
+                            Some(previous) => match settings.cleanup_schedule.as_str() {
+                                "daily" => previous.elapsed() >= Duration::from_secs(24 * 60 * 60),
+                                "weekly" => {
+                                    previous.elapsed() >= Duration::from_secs(7 * 24 * 60 * 60)
+                                }
+                                "startup" => false,
+                                _ => false,
+                            },
+                        };
+
+                        if should_run {
+                            match cleanup_old_history_entries(
+                                &cleanup_app,
+                                &cleanup_history_lock,
+                                settings.cleanup_days,
+                            ) {
+                                Ok(result) => {
+                                    last_run = Some(Instant::now());
+                                    if let Err(error) =
+                                        cleanup_app.emit("history-cleanup-completed", &result)
+                                    {
+                                        log::debug!("无法发送自动清理完成事件：{error}");
+                                    }
+                                }
+                                Err(error) => {
+                                    log::warn!("自动清理历史失败：{error}");
+                                }
+                            }
+                        }
+
+                        thread::sleep(Duration::from_secs(60));
+                    }
+                })?;
 
             #[cfg(desktop)]
             build_tray(app)?;
@@ -1805,9 +1905,9 @@ mod tests {
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
         build_toast_payload, content_entry_id, decode_image_buffers, file_name,
-        history_entry_from_snapshot, is_image_format, is_sensitive_text, normalize_history,
-        normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
-        sensitive_secret_ref,
+        history_entry_from_snapshot, is_image_format, is_sensitive_text,
+        normalize_cleanup_schedule, normalize_history, normalize_notification_settings,
+        normalize_position, notification_title, prune_old_entries, sensitive_secret_ref,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -2073,6 +2173,19 @@ mod tests {
             .duration_ms,
             30_000
         );
+    }
+
+    #[test]
+    fn normalizes_automatic_cleanup_settings() {
+        let normalized = normalize_notification_settings(NotificationSettings {
+            cleanup_days: 0,
+            cleanup_schedule: "hourly".to_string(),
+            ..NotificationSettings::default()
+        });
+
+        assert_eq!(normalized.cleanup_days, 1);
+        assert_eq!(normalized.cleanup_schedule, "startup");
+        assert_eq!(normalize_cleanup_schedule("weekly"), "weekly");
     }
 
     #[test]

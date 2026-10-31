@@ -233,7 +233,8 @@ h2 { font-size: 17px; font-weight: 760; }
   .detail-column { padding: 16px; }
   .setting-row-cleanup { align-items: flex-start; flex-direction: column; gap: 10px; }
   .setting-controls { width: 100%; }
-  .setting-controls select, .setting-controls button { flex: 1; }
+  .setting-controls { flex-wrap: wrap; max-width: 100%; }
+  .setting-controls select, .setting-controls button { flex: 1 1 120px; }
   .detail-actions { grid-template-columns: 1fr; }
   .detail-meta { flex-wrap: wrap; }
   .feed-card-main { grid-template-columns: auto minmax(0, 1fr); }

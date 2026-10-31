@@ -28,6 +28,9 @@
       quickPasteEnabled: true,
       position: "bottom-right",
       durationMs: 3000,
+      cleanupEnabled: false,
+      cleanupDays: 30,
+      cleanupSchedule: "startup",
     },
     toastTimer: null,
     revealTimer: null,
@@ -65,7 +68,9 @@
     monitorToggle: document.getElementById("monitor-toggle"),
     settingsNote: document.getElementById("settings-note"),
     launchAtLogin: document.getElementById("launch-at-login"),
+    cleanupEnabled: document.getElementById("cleanup-enabled"),
     cleanupDays: document.getElementById("cleanup-days"),
+    cleanupSchedule: document.getElementById("cleanup-schedule"),
     cleanupOldHistory: document.getElementById("cleanup-old-history"),
     protectedControls: document.getElementById("protected-controls"),
     revealProtected: document.getElementById("reveal-protected"),
@@ -182,6 +187,9 @@
       quickPasteEnabled: settings.quick_paste_enabled ?? settings.quickPasteEnabled ?? true,
       position: settings.position || "bottom-right",
       durationMs: normalizeNotificationDuration(settings.duration_ms ?? settings.durationMs),
+      cleanupEnabled: Boolean(settings.cleanup_enabled ?? settings.cleanupEnabled ?? false),
+      cleanupDays: Number(settings.cleanup_days ?? settings.cleanupDays ?? 30),
+      cleanupSchedule: settings.cleanup_schedule ?? settings.cleanupSchedule ?? "startup",
     };
   }
 
@@ -193,6 +201,9 @@
       quick_paste_enabled: Boolean(settings.quickPasteEnabled),
       position: settings.position,
       duration_ms: normalizeNotificationDuration(settings.durationMs),
+      cleanup_enabled: Boolean(settings.cleanupEnabled),
+      cleanup_days: Number(settings.cleanupDays),
+      cleanup_schedule: settings.cleanupSchedule,
     };
   }
 
@@ -220,6 +231,9 @@
     elements.quickPasteEnabled.checked = state.notificationSettings.quickPasteEnabled;
     elements.notifyPosition.value = state.notificationSettings.position;
     elements.notifyDuration.value = String(state.notificationSettings.durationMs);
+    elements.cleanupEnabled.checked = state.notificationSettings.cleanupEnabled;
+    elements.cleanupDays.value = String(state.notificationSettings.cleanupDays);
+    elements.cleanupSchedule.value = state.notificationSettings.cleanupSchedule;
     try {
       elements.launchAtLogin.checked = await invoke("is_autostart_enabled");
     } catch (error) {
@@ -235,6 +249,9 @@
     elements.quickPasteEnabled.checked = state.notificationSettings.quickPasteEnabled;
     elements.notifyPosition.value = state.notificationSettings.position;
     elements.notifyDuration.value = String(state.notificationSettings.durationMs);
+    elements.cleanupEnabled.checked = state.notificationSettings.cleanupEnabled;
+    elements.cleanupDays.value = String(state.notificationSettings.cleanupDays);
+    elements.cleanupSchedule.value = state.notificationSettings.cleanupSchedule;
   }
 
   async function saveNotificationSettings(previousSettings) {
@@ -1080,6 +1097,16 @@
         if (typeof payload === "string") focusCapturedEntry(payload);
       });
       await listen("quick-paste-request", () => enterQuickPasteMode());
+      await listen("history-cleanup-completed", async ({ payload }) => {
+        const removed = Number(payload?.removed_count ?? payload?.removedCount ?? 0);
+        await loadHistory();
+        if (state.selectedId && !state.entries.some((entry) => entry.id === state.selectedId)) {
+          resetDetail();
+        }
+        if (removed > 0) {
+          setMessage(`自动清理了 ${removed} 条未收藏历史。`);
+        }
+      });
       await listen("clipboard-changed", ({ payload }) => {
         if (state.captureState.paused || state.captureState.privacyMode) return;
         if (!payload || payload.kind === "other") {
@@ -1206,6 +1233,21 @@
   elements.notifyDuration.addEventListener("change", () => {
     const previousSettings = { ...state.notificationSettings };
     state.notificationSettings.durationMs = normalizeNotificationDuration(elements.notifyDuration.value);
+    saveNotificationSettings(previousSettings);
+  });
+  elements.cleanupEnabled.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
+    state.notificationSettings.cleanupEnabled = elements.cleanupEnabled.checked;
+    saveNotificationSettings(previousSettings);
+  });
+  elements.cleanupDays.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
+    state.notificationSettings.cleanupDays = Number(elements.cleanupDays.value);
+    saveNotificationSettings(previousSettings);
+  });
+  elements.cleanupSchedule.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
+    state.notificationSettings.cleanupSchedule = elements.cleanupSchedule.value;
     saveNotificationSettings(previousSettings);
   });
   elements.privacyMode.addEventListener("change", () => {
