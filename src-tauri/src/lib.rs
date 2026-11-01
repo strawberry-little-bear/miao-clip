@@ -274,6 +274,7 @@ struct ClipboardMonitor {
     app: AppHandle,
     notification_settings: Arc<RwLock<NotificationSettings>>,
     capture_state: Arc<RwLock<CaptureState>>,
+    monitor_status: Arc<RwLock<MonitorStatus>>,
     history_lock: Arc<Mutex<()>>,
     suppressed_entries: Arc<RwLock<HashMap<String, Instant>>>,
 }
@@ -292,6 +293,12 @@ impl ClipboardHandler for ClipboardMonitor {
         }
         match read_clipboard_snapshot(&self.app) {
             Ok(mut snapshot) => {
+                update_monitor_status(
+                    &self.app,
+                    &self.monitor_status,
+                    "running",
+                    "剪贴板监听正常运行。",
+                );
                 if consume_suppressed_entry(&self.suppressed_entries, &snapshot.entry_id) {
                     return CallbackResult::Next;
                 }
@@ -317,12 +324,26 @@ impl ClipboardHandler for ClipboardMonitor {
                     log::warn!("无法通知前端剪贴板变化：{error}");
                 }
             }
-            Err(error) => log::warn!("读取剪贴板变化失败：{error}"),
+            Err(error) => {
+                update_monitor_status(
+                    &self.app,
+                    &self.monitor_status,
+                    "error",
+                    format!("读取剪贴板变化失败：{error}"),
+                );
+                log::warn!("读取剪贴板变化失败：{error}");
+            }
         }
         CallbackResult::Next
     }
 
     fn on_clipboard_error(&mut self, error: std::io::Error) -> CallbackResult {
+        update_monitor_status(
+            &self.app,
+            &self.monitor_status,
+            "error",
+            format!("剪贴板监听发生错误：{error}"),
+        );
         log::warn!("剪贴板监听错误：{error}");
         CallbackResult::Next
     }
@@ -2245,6 +2266,7 @@ pub fn run() {
                         app: monitor_app.clone(),
                         notification_settings,
                         capture_state,
+                        monitor_status: monitor_status_for_thread.clone(),
                         history_lock,
                         suppressed_entries,
                     }) {
