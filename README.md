@@ -179,11 +179,11 @@ flowchart LR
     G --> H
 ```
 
-## 下载试用版
+## 下载与安装
 
-GitHub Actions 会持续检查代码，并为 macOS 和 Windows 自动构建可下载的试用安装包。
+正式版本发布后，可从 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases) 下载对应平台的安装包。每个版本由 GitHub Actions 从版本标签自动构建，覆盖 Apple Silicon、Intel Mac、Windows x64 和 Linux x64。
 
-打开项目的 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml)，进入最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载对应平台的产物：
+尚未发布正式版本时，也可以从 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml) 中最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载 macOS 或 Windows 试用产物：
 
 | 产物 | 适用设备 | 内容 |
 | --- | --- | --- |
@@ -191,7 +191,9 @@ GitHub Actions 会持续检查代码，并为 macOS 和 Windows 自动构建可�
 | `MiaoClip-macos-x64` | Intel Mac | `.dmg` |
 | `MiaoClip-windows-x64` | 64 位 Windows | `.msi` 和 `.exe` |
 
-Actions 产物保留 30 天。这些是方便体验的未签名测试构建，不是正式发布版；macOS 可能提示无法验证开发者，Windows 也可能显示 SmartScreen 提示。请只从本项目的 GitHub Actions 下载，并仅在信任项目来源时运行。
+Actions 试用产物保留 30 天。正式 Release 还提供 Linux x64 的 `.deb` 和 `.AppImage`。当前安装包未进行代码签名或公证，macOS 可能提示无法验证开发者，Windows 可能显示 SmartScreen 提示；Linux 的桌面集成和剪贴板来源识别会因发行版与桌面环境而异。请确认下载来源并阅读对应平台说明后再安装。
+
+维护者发布新版本时，先将 `src-tauri/tauri.conf.json` 中的应用版本更新为目标版本，再为对应提交创建并推送同名标签，例如 `v1.2.3`。Release 工作流会校验标签和应用版本一致，构建所有平台安装包并自动附加到 GitHub Release；任一平台构建失败时不会发布不完整版本。
 
 ## 开发与构建
 
@@ -270,7 +272,7 @@ notifications.json  通知开关、位置和持续时间
 | --- | --- | --- |
 | macOS | 本地运行与 GitHub Actions 构建已验证 | Actions 提供 Apple Silicon 与 Intel 测试安装包；支持来源应用识别、系统托盘、通知和开机启动 |
 | Windows | GitHub Actions 检查与构建已验证 | Actions 提供 64 位 MSI 和 EXE 测试安装包；仍建议在真实设备验收 WebView2、通知和开机启动 |
-| Linux | GitHub Actions 检查与测试 | 来源应用识别依赖桌面环境，优先使用 `xdotool`；不同桌面环境需要继续实测 |
+| Linux | GitHub Actions 检查、测试与 x64 安装包构建 | Release 提供 `.deb` 和 `.AppImage`；来源应用识别依赖桌面环境，优先使用 `xdotool`，不同桌面环境仍需实测 |
 
 ## 项目结构
 
@@ -305,7 +307,7 @@ miao-clip/
 - [x] 标签和更细粒度的历史整理：详情页编辑标签，列表展示并支持搜索 / 筛选
 - [x] 可配置自动清理规则：自定义保留时间和执行频率，收藏内容永久保留
 - [x] 历史导出 / 导入：版本化 JSON 合并备份，图片随备份恢复，敏感原文不导出
-- [ ] 更完整的跨平台安装包发布流程
+- [x] 版本标签触发的跨平台 Release：macOS（Apple Silicon / Intel）、Windows x64、Linux x64 安装包自动附加到 GitHub Release
 
 ## 参与贡献
 
