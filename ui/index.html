@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f6f5f1" />
     <title>妙夹 · MiaoClip</title>
-    <link rel="stylesheet" href="style.css?v=20" />
+    <link rel="stylesheet" href="style.css?v=21" />
   </head>
   <body>
     <div class="app-frame">
@@ -125,10 +125,25 @@
             <div class="setting-row setting-row-backup"><span><strong>历史备份</strong><small>导出或导入本机历史，导入会与现有内容合并；敏感内容只保留遮罩后的记录信息，不会写入密码原文。</small></span><div class="setting-controls"><button class="quiet-button" id="export-history" type="button">导出历史</button><button class="quiet-button" id="import-history" type="button">导入历史</button></div></div>
           </div>
           <p class="settings-note" id="settings-note">通知设置只保存在本机。备份文件仍可能包含普通文本、URL、文件路径和图片，请妥善保管。</p>
+          <section class="diagnostics-panel" aria-labelledby="diagnostics-heading">
+            <div class="diagnostics-heading">
+              <div><p class="overline">运行环境</p><h3 id="diagnostics-heading">平台能力诊断</h3></div>
+              <button class="quiet-button" id="refresh-diagnostics" type="button">重新检测</button>
+            </div>
+            <p class="diagnostics-summary" id="diagnostics-summary">正在读取当前设备能力…</p>
+            <div class="diagnostics-grid">
+              <div class="diagnostic-row"><span><strong>系统与架构</strong><small id="diagnostic-platform-detail">等待检测</small></span><b class="diagnostic-state" id="diagnostic-platform-state">检测中</b></div>
+              <div class="diagnostic-row"><span><strong>剪贴板监听</strong><small id="diagnostic-monitor-detail">等待检测</small></span><b class="diagnostic-state" id="diagnostic-monitor-state">检测中</b></div>
+              <div class="diagnostic-row"><span><strong>来源应用识别</strong><small id="diagnostic-source-detail">等待检测</small></span><b class="diagnostic-state" id="diagnostic-source-state">检测中</b></div>
+              <div class="diagnostic-row"><span><strong>系统安全存储</strong><small id="diagnostic-secure-detail">等待检测</small></span><b class="diagnostic-state" id="diagnostic-secure-state">检测中</b></div>
+              <div class="diagnostic-row"><span><strong>开机启动</strong><small id="diagnostic-autostart-detail">等待检测</small></span><b class="diagnostic-state" id="diagnostic-autostart-state">检测中</b></div>
+              <div class="diagnostic-row"><span><strong>图片与文件捕获</strong><small id="diagnostic-media-detail">等待检测</small></span><b class="diagnostic-state" id="diagnostic-media-state">检测中</b></div>
+            </div>
+          </section>
         </section>
       </main>
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <script src="main.js?v=21"></script>
+    <script src="main.js?v=22"></script>
   </body>
 </html>

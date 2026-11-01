@@ -201,6 +201,7 @@ impl Default for NotificationSettings {
 struct RuntimeState {
     notification_settings: Arc<RwLock<NotificationSettings>>,
     capture_state: Arc<RwLock<CaptureState>>,
+    monitor_status: Arc<RwLock<MonitorStatus>>,
     history_lock: Arc<Mutex<()>>,
     suppressed_entries: Arc<RwLock<HashMap<String, Instant>>>,
 }
@@ -215,6 +216,39 @@ struct TrayControls {
 struct CaptureState {
     paused: bool,
     privacy_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MonitorStatus {
+    state: String,
+    detail: String,
+}
+
+impl Default for MonitorStatus {
+    fn default() -> Self {
+        Self {
+            state: "starting".to_string(),
+            detail: "正在初始化系统剪贴板监听。".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CapabilityStatus {
+    available: bool,
+    detail: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PlatformDiagnostics {
+    platform: String,
+    architecture: String,
+    monitor: MonitorStatus,
+    source_app: CapabilityStatus,
+    secure_storage: CapabilityStatus,
+    autostart: CapabilityStatus,
+    image_capture: CapabilityStatus,
+    file_capture: CapabilityStatus,
 }
 
 impl Default for CaptureState {
@@ -343,6 +377,88 @@ fn capture_suspended(capture_state: &Arc<RwLock<CaptureState>>) -> bool {
         .read()
         .map(|state| state.paused || state.privacy_mode)
         .unwrap_or(true)
+}
+
+fn update_monitor_status(
+    app: &AppHandle,
+    monitor_status: &Arc<RwLock<MonitorStatus>>,
+    state: &str,
+    detail: impl Into<String>,
+) {
+    let status = MonitorStatus {
+        state: state.to_string(),
+        detail: detail.into(),
+    };
+    if let Ok(mut current) = monitor_status.write() {
+        *current = status.clone();
+    }
+    if let Err(error) = app.emit("clipboard-monitor-status", &status) {
+        log::debug!("无法发送剪贴板监听状态：{error}");
+    }
+}
+
+fn capability(available: bool, detail: impl Into<String>) -> CapabilityStatus {
+    CapabilityStatus {
+        available,
+        detail: detail.into(),
+    }
+}
+
+fn source_app_capability() -> CapabilityStatus {
+    #[cfg(target_os = "macos")]
+    {
+        let available = Path::new("/usr/bin/osascript").exists();
+        return capability(
+            available,
+            if available {
+                "使用 macOS 前台应用识别。"
+            } else {
+                "缺少 osascript，来源应用将显示为未知应用。"
+            },
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return capability(true, "使用 Windows 前台窗口和进程信息识别来源应用。");
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let available = Command::new("which")
+            .arg("xdotool")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        return capability(
+            available,
+            if available {
+                "使用 xdotool 识别当前前台应用。"
+            } else {
+                "未找到 xdotool，来源应用可能显示为未知应用。"
+            },
+        );
+    }
+
+    #[allow(unreachable_code)]
+    capability(false, "当前平台暂不支持来源应用识别。")
+}
+
+fn platform_label() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        return "macOS";
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return "Windows";
+    }
+    #[cfg(target_os = "linux")]
+    {
+        return "Linux";
+    }
+    #[allow(unreachable_code)]
+    "未知平台"
 }
 
 #[cfg(desktop)]
@@ -1768,6 +1884,42 @@ fn get_capture_state(state: State<'_, RuntimeState>) -> Result<CaptureState, Str
 }
 
 #[tauri::command]
+fn get_platform_diagnostics(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+) -> Result<PlatformDiagnostics, String> {
+    use tauri_plugin_autostart::ManagerExt;
+
+    let monitor = state
+        .monitor_status
+        .read()
+        .map(|status| status.clone())
+        .map_err(|_| "无法读取剪贴板监听状态。".to_string())?;
+    let secure_storage = match sensitive_keyring_entry("diagnostic") {
+        Ok(_) => capability(
+            true,
+            "系统安全存储接口已加载。首次写入敏感内容时仍可能需要系统授权。",
+        ),
+        Err(error) => capability(false, error),
+    };
+    let autostart = match app.autolaunch().is_enabled() {
+        Ok(_) => capability(true, "当前平台支持开机启动设置。"),
+        Err(error) => capability(false, format!("开机启动能力不可用：{error}")),
+    };
+
+    Ok(PlatformDiagnostics {
+        platform: platform_label().to_string(),
+        architecture: std::env::consts::ARCH.to_string(),
+        monitor,
+        source_app: source_app_capability(),
+        secure_storage,
+        autostart,
+        image_capture: capability(true, "支持剪贴板图片捕获和本地预览。"),
+        file_capture: capability(true, "支持剪贴板文件捕获和按文件名再次复制。"),
+    })
+}
+
+#[tauri::command]
 fn set_capture_state(
     app: AppHandle,
     state: State<'_, RuntimeState>,
@@ -1997,11 +2149,13 @@ pub fn run() {
             .map_err(std::io::Error::other)?;
             let notification_settings = Arc::new(RwLock::new(notification_settings));
             let capture_state = Arc::new(RwLock::new(CaptureState::default()));
+            let monitor_status = Arc::new(RwLock::new(MonitorStatus::default()));
             let history_lock = Arc::new(Mutex::new(()));
             let suppressed_entries = Arc::new(RwLock::new(HashMap::new()));
             app.manage(RuntimeState {
                 notification_settings: notification_settings.clone(),
                 capture_state: capture_state.clone(),
+                monitor_status: monitor_status.clone(),
                 history_lock: history_lock.clone(),
                 suppressed_entries: suppressed_entries.clone(),
             });
@@ -2077,11 +2231,18 @@ pub fn run() {
             build_tray(app)?;
 
             let monitor_app = app.handle().clone();
+            let monitor_status_for_thread = monitor_status.clone();
             std::thread::Builder::new()
                 .name("clipboard-monitor".to_string())
                 .spawn(move || {
+                    update_monitor_status(
+                        &monitor_app,
+                        &monitor_status_for_thread,
+                        "starting",
+                        "正在初始化系统剪贴板监听。",
+                    );
                     let mut monitor = match Master::new(ClipboardMonitor {
-                        app: monitor_app,
+                        app: monitor_app.clone(),
                         notification_settings,
                         capture_state,
                         history_lock,
@@ -2089,11 +2250,29 @@ pub fn run() {
                     }) {
                         Ok(monitor) => monitor,
                         Err(error) => {
+                            update_monitor_status(
+                                &monitor_app,
+                                &monitor_status_for_thread,
+                                "error",
+                                format!("无法初始化剪贴板监听：{error}"),
+                            );
                             log::error!("无法启动剪贴板监听：{error}");
                             return;
                         }
                     };
+                    update_monitor_status(
+                        &monitor_app,
+                        &monitor_status_for_thread,
+                        "running",
+                        "剪贴板监听已启动。",
+                    );
                     if let Err(error) = monitor.run() {
+                        update_monitor_status(
+                            &monitor_app,
+                            &monitor_status_for_thread,
+                            "error",
+                            format!("剪贴板监听已停止：{error}"),
+                        );
                         log::error!("剪贴板监听已停止：{error}");
                     }
                 })?;
@@ -2124,6 +2303,7 @@ pub fn run() {
             clean_text,
             format_json,
             get_capture_state,
+            get_platform_diagnostics,
             get_notification_settings,
             hide_clipboard_toast,
             hide_main_window,

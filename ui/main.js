@@ -67,6 +67,20 @@
     privacyMode: document.getElementById("privacy-mode"),
     monitorToggle: document.getElementById("monitor-toggle"),
     settingsNote: document.getElementById("settings-note"),
+    diagnosticsSummary: document.getElementById("diagnostics-summary"),
+    refreshDiagnostics: document.getElementById("refresh-diagnostics"),
+    diagnosticPlatformState: document.getElementById("diagnostic-platform-state"),
+    diagnosticPlatformDetail: document.getElementById("diagnostic-platform-detail"),
+    diagnosticMonitorState: document.getElementById("diagnostic-monitor-state"),
+    diagnosticMonitorDetail: document.getElementById("diagnostic-monitor-detail"),
+    diagnosticSourceState: document.getElementById("diagnostic-source-state"),
+    diagnosticSourceDetail: document.getElementById("diagnostic-source-detail"),
+    diagnosticSecureState: document.getElementById("diagnostic-secure-state"),
+    diagnosticSecureDetail: document.getElementById("diagnostic-secure-detail"),
+    diagnosticAutostartState: document.getElementById("diagnostic-autostart-state"),
+    diagnosticAutostartDetail: document.getElementById("diagnostic-autostart-detail"),
+    diagnosticMediaState: document.getElementById("diagnostic-media-state"),
+    diagnosticMediaDetail: document.getElementById("diagnostic-media-detail"),
     launchAtLogin: document.getElementById("launch-at-login"),
     cleanupEnabled: document.getElementById("cleanup-enabled"),
     cleanupDays: document.getElementById("cleanup-days"),
@@ -137,6 +151,51 @@
     }
     elements.privacyMode.checked = state.captureState.privacyMode;
     renderCaptureStatus();
+  }
+
+  function setDiagnosticRow(stateElement, detailElement, value) {
+    const available = Boolean(value?.available);
+    stateElement.textContent = available ? "可用" : "需注意";
+    stateElement.dataset.state = available ? "ok" : "warning";
+    detailElement.textContent = value?.detail || "未提供详细信息。";
+  }
+
+  function renderDiagnostics(diagnostics) {
+    if (!diagnostics) return;
+    const monitor = diagnostics.monitor || {};
+    const monitorRunning = monitor.state === "running";
+    elements.diagnosticPlatformState.textContent = `${diagnostics.platform || "未知平台"} · ${diagnostics.architecture || "未知架构"}`;
+    elements.diagnosticPlatformState.dataset.state = "ok";
+    elements.diagnosticPlatformDetail.textContent = "当前应用运行环境。";
+    elements.diagnosticMonitorState.textContent = monitorRunning ? "正常" : monitor.state === "starting" ? "启动中" : "异常";
+    elements.diagnosticMonitorState.dataset.state = monitorRunning ? "ok" : monitor.state === "starting" ? "pending" : "warning";
+    elements.diagnosticMonitorDetail.textContent = monitor.detail || "未提供监听状态。";
+    setDiagnosticRow(elements.diagnosticSourceState, elements.diagnosticSourceDetail, diagnostics.source_app);
+    setDiagnosticRow(elements.diagnosticSecureState, elements.diagnosticSecureDetail, diagnostics.secure_storage);
+    setDiagnosticRow(elements.diagnosticAutostartState, elements.diagnosticAutostartDetail, diagnostics.autostart);
+    const mediaAvailable = Boolean(diagnostics.image_capture?.available && diagnostics.file_capture?.available);
+    elements.diagnosticMediaState.textContent = mediaAvailable ? "可用" : "需注意";
+    elements.diagnosticMediaState.dataset.state = mediaAvailable ? "ok" : "warning";
+    elements.diagnosticMediaDetail.textContent = [diagnostics.image_capture?.detail, diagnostics.file_capture?.detail].filter(Boolean).join(" ");
+    elements.diagnosticsSummary.textContent = monitorRunning
+      ? "当前平台能力已读取；如果复制后没有新记录，可先查看这里的监听状态。"
+      : monitor.state === "starting"
+        ? "系统剪贴板监听正在启动，请稍候。"
+        : "系统剪贴板监听没有正常运行，请根据异常详情检查平台权限或桌面环境。";
+  }
+
+  async function loadPlatformDiagnostics() {
+    try {
+      requireTauri();
+      elements.refreshDiagnostics.disabled = true;
+      elements.diagnosticsSummary.textContent = "正在重新检测当前设备能力…";
+      const diagnostics = await invoke("get_platform_diagnostics");
+      renderDiagnostics(diagnostics);
+    } catch (error) {
+      elements.diagnosticsSummary.textContent = `诊断失败：${error}`;
+    } finally {
+      elements.refreshDiagnostics.disabled = false;
+    }
   }
 
   async function saveCaptureState(nextState) {
@@ -1121,6 +1180,16 @@
         elements.privacyMode.checked = state.captureState.privacyMode;
         renderCaptureStatus();
       });
+      await listen("clipboard-monitor-status", ({ payload }) => {
+        const status = payload || {};
+        const monitorState = status.state || "error";
+        setMonitorStatus(
+          monitorState === "running" ? "listening" : monitorState === "starting" ? "starting" : "error",
+          monitorState === "running" ? "正在监听" : monitorState === "starting" ? "正在启动监听" : "监听暂不可用",
+          status.detail || "请打开设置查看平台能力诊断。",
+        );
+        loadPlatformDiagnostics();
+      });
       await listen("open-clipboard-entry", ({ payload }) => {
         if (typeof payload === "string") focusCapturedEntry(payload);
       });
@@ -1333,6 +1402,7 @@
   elements.cleanupOldHistory.addEventListener("click", cleanupOldHistory);
   elements.exportHistory.addEventListener("click", requestHistoryExport);
   elements.importHistory.addEventListener("click", requestHistoryImport);
+  elements.refreshDiagnostics.addEventListener("click", loadPlatformDiagnostics);
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
   }
@@ -1417,6 +1487,7 @@
   } else {
     loadNotificationSettings()
       .then(loadCaptureState)
+      .then(loadPlatformDiagnostics)
       .then(loadHistory)
       .then(startClipboardMonitor)
       .catch((error) => setMessage(String(error)));
