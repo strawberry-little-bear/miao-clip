@@ -33,12 +33,12 @@
 
 ## 当前版本
 
-当前稳定测试版本为 **`v0.1.0`**。
+当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：通过**：主分支会在 Ubuntu、macOS 和 Windows 上执行格式检查、编译检查、Rust 测试和桌面构建。
+- **CI：通过**：[主分支构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41496603547) 已完成 Ubuntu、macOS 和 Windows 的格式检查、编译检查、Rust 测试和桌面构建。
 - **macOS：已完成本地验收**：已验证自动捕获、来源应用、完整日期时间、图片 / 文件记录、敏感内容保护、通知、暂停监听、隐私模式和开机启动。
-- **Windows：CI 构建通过**：已生成 MSI 和 EXE 产物，真实设备上的 WebView2、通知和开机启动仍需继续验收。
-- **Linux：CI 构建通过**：已生成 `.deb` 和 `.AppImage` 产物，不同发行版和桌面环境仍需继续验收。
+- **Windows：Release 构建通过**：已发布 MSI 和 EXE 安装包；真实设备上的 WebView2、通知和开机启动仍需继续验收。
+- **Linux：Release 构建通过**：已发布 `.deb` 和 `.AppImage` 安装包；不同发行版和桌面环境仍需继续验收。
 
 ## 30 秒上手
 
@@ -192,7 +192,16 @@ flowchart LR
 
 ## 下载与安装
 
-正式版本发布后，可从 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases) 下载对应平台的安装包。每个版本由 GitHub Actions 从版本标签自动构建，覆盖 Apple Silicon、Intel Mac、Windows x64 和 Linux x64。
+`v0.1.0` 已正式发布，可从 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0) 下载对应平台的安装包。每个版本由 GitHub Actions 从版本标签自动构建，覆盖 Apple Silicon、Intel Mac、Windows x64 和 Linux x64。
+
+当前 Release 附件如下：
+
+| 平台 | 安装包 |
+| --- | --- |
+| macOS Apple Silicon | `MiaoClip_0.1.0_aarch64.dmg` |
+| macOS Intel | `MiaoClip_0.1.0_x64.dmg` |
+| Windows x64 | `MiaoClip_0.1.0_x64_en-US.msi`、`MiaoClip_0.1.0_x64-setup.exe` |
+| Linux x64 | `MiaoClip_0.1.0_amd64.deb`、`MiaoClip_0.1.0_amd64.AppImage` |
 
 在正式 Release 之外，也可以从 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml) 中最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载 macOS 或 Windows 试用产物：
 
