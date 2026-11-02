@@ -6,7 +6,7 @@
   <p>把复制过的内容，变成一个找得回、看得懂、用得上的本地工作区。</p>
 
   <p>
-    <a href="https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/strawberry-little-bear/miao-clip/ci.yml?style=flat-square&label=CI" alt="CI 状态" /></a>
+    <a href="https://github.com/strawberry-little-bear/miao-clip/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/strawberry-little-bear/miao-clip/build.yml?style=flat-square&label=CI" alt="CI 状态" /></a>
     <img src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2" />
     <img src="https://img.shields.io/badge/Rust-2024-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2024" />
     <img src="https://img.shields.io/badge/平台-macOS%20%7C%20Windows%20%7C%20Linux-3f6f73?style=flat-square" alt="支持 macOS、Windows 和 Linux" />
@@ -185,7 +185,7 @@ flowchart LR
 
 正式版本发布后，可从 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases) 下载对应平台的安装包。每个版本由 GitHub Actions 从版本标签自动构建，覆盖 Apple Silicon、Intel Mac、Windows x64 和 Linux x64。
 
-尚未发布正式版本时，也可以从 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml) 中最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载 macOS 或 Windows 试用产物：
+尚未发布正式版本时，也可以从 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/build.yml) 中最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载 macOS 或 Windows 试用产物：
 
 | 产物 | 适用设备 | 内容 |
 | --- | --- | --- |
