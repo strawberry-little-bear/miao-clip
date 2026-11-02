@@ -6,7 +6,7 @@
   <p>把复制过的内容，变成一个找得回、看得懂、用得上的本地工作区。</p>
 
   <p>
-    <a href="https://github.com/strawberry-little-bear/miao-clip/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/strawberry-little-bear/miao-clip/build.yml?style=flat-square&label=CI" alt="CI 状态" /></a>
+    <a href="https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/strawberry-little-bear/miao-clip/ci.yml?style=flat-square&label=CI" alt="CI 状态" /></a>
     <img src="https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2" />
     <img src="https://img.shields.io/badge/Rust-2024-000000?style=flat-square&logo=rust&logoColor=white" alt="Rust 2024" />
     <img src="https://img.shields.io/badge/平台-macOS%20%7C%20Windows%20%7C%20Linux-3f6f73?style=flat-square" alt="支持 macOS、Windows 和 Linux" />
@@ -30,6 +30,15 @@
 <p align="center"><sub>复制一次，自动留下来；需要时搜索、预览，再次复制。</sub></p>
 
 > 妙夹是一个本地优先的桌面剪贴板工具。它在后台自动接住复制内容，识别文本、链接、账号、敏感信息、图片和文件，并让这些内容可以被搜索、预览、收藏和再次复制。
+
+## 当前版本
+
+当前稳定测试版本为 **`v0.1.0`**。
+
+- **CI：通过**：主分支会在 Ubuntu、macOS 和 Windows 上执行格式检查、编译检查、Rust 测试和桌面构建。
+- **macOS：已完成本地验收**：已验证自动捕获、来源应用、完整日期时间、图片 / 文件记录、敏感内容保护、通知、暂停监听、隐私模式和开机启动。
+- **Windows：CI 构建通过**：已生成 MSI 和 EXE 产物，真实设备上的 WebView2、通知和开机启动仍需继续验收。
+- **Linux：CI 构建通过**：已生成 `.deb` 和 `.AppImage` 产物，不同发行版和桌面环境仍需继续验收。
 
 ## 30 秒上手
 
@@ -185,7 +194,7 @@ flowchart LR
 
 正式版本发布后，可从 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases) 下载对应平台的安装包。每个版本由 GitHub Actions 从版本标签自动构建，覆盖 Apple Silicon、Intel Mac、Windows x64 和 Linux x64。
 
-尚未发布正式版本时，也可以从 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/build.yml) 中最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载 macOS 或 Windows 试用产物：
+在正式 Release 之外，也可以从 [Actions 构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/workflows/ci.yml) 中最近一次成功的 `Build MiaoClip` 运行，在页面底部的 **Artifacts** 区域下载 macOS 或 Windows 试用产物：
 
 | 产物 | 适用设备 | 内容 |
 | --- | --- | --- |
@@ -320,6 +329,7 @@ miao-clip/
 - [x] 历史导出 / 导入：版本化 JSON 合并备份，图片随备份恢复，敏感原文不导出
 - [x] 版本标签触发的跨平台 Release：macOS（Apple Silicon / Intel）、Windows x64、Linux x64 安装包自动附加到 GitHub Release
 - [x] 平台能力诊断和剪贴板监听异常提示
+- [x] 无需退出应用即可重新启动剪贴板监听
 
 ## 参与贡献
 
