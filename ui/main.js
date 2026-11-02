@@ -68,6 +68,7 @@
     monitorToggle: document.getElementById("monitor-toggle"),
     settingsNote: document.getElementById("settings-note"),
     diagnosticsSummary: document.getElementById("diagnostics-summary"),
+    restartMonitor: document.getElementById("restart-monitor"),
     refreshDiagnostics: document.getElementById("refresh-diagnostics"),
     diagnosticPlatformState: document.getElementById("diagnostic-platform-state"),
     diagnosticPlatformDetail: document.getElementById("diagnostic-platform-detail"),
@@ -181,7 +182,7 @@
       ? "当前平台能力已读取；如果复制后没有新记录，可先查看这里的监听状态。"
       : monitor.state === "starting"
         ? "系统剪贴板监听正在启动，请稍候。"
-        : "系统剪贴板监听没有正常运行，请根据异常详情检查平台权限或桌面环境。";
+        : "系统剪贴板监听没有正常运行，可点击“重新启动监听”后再次检查。";
   }
 
   async function loadPlatformDiagnostics() {
@@ -195,6 +196,24 @@
       elements.diagnosticsSummary.textContent = `诊断失败：${error}`;
     } finally {
       elements.refreshDiagnostics.disabled = false;
+    }
+  }
+
+  async function restartClipboardMonitor() {
+    try {
+      requireTauri();
+      elements.restartMonitor.disabled = true;
+      elements.diagnosticsSummary.textContent = "正在重新启动系统剪贴板监听…";
+      await invoke("restart_clipboard_monitor");
+      setMessage("剪贴板监听已重新启动。", { toast: true });
+      window.setTimeout(() => loadPlatformDiagnostics(), 450);
+    } catch (error) {
+      elements.diagnosticsSummary.textContent = `监听重启失败：${error}`;
+      setMessage(String(error));
+    } finally {
+      window.setTimeout(() => {
+        elements.restartMonitor.disabled = false;
+      }, 500);
     }
   }
 
@@ -1386,6 +1405,7 @@
   elements.privacyMode.addEventListener("change", () => {
     saveCaptureState({ privacyMode: elements.privacyMode.checked });
   });
+  elements.restartMonitor.addEventListener("click", () => restartClipboardMonitor());
   elements.launchAtLogin.addEventListener("change", async () => {
     const enabled = elements.launchAtLogin.checked;
     elements.launchAtLogin.disabled = true;

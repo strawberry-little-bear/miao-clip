@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -9,7 +10,7 @@ use std::time::{Duration, Instant};
 use arboard::{Clipboard, ImageData};
 use base64::Engine;
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
-use clipboard_master::{CallbackResult, ClipboardHandler, Master};
+use clipboard_master::{CallbackResult, ClipboardHandler, Master, Shutdown};
 use clipboard_rs::common::RustImage;
 use clipboard_rs::{Clipboard as ClipboardFormats, ClipboardContext, RustImageData};
 use keyring::Entry as KeyringEntry;
@@ -197,11 +198,12 @@ impl Default for NotificationSettings {
     }
 }
 
-#[derive(Debug)]
 struct RuntimeState {
     notification_settings: Arc<RwLock<NotificationSettings>>,
     capture_state: Arc<RwLock<CaptureState>>,
     monitor_status: Arc<RwLock<MonitorStatus>>,
+    monitor_shutdown: Arc<Mutex<Option<(u64, Shutdown)>>>,
+    monitor_generation: Arc<AtomicU64>,
     history_lock: Arc<Mutex<()>>,
     suppressed_entries: Arc<RwLock<HashMap<String, Instant>>>,
 }
@@ -1941,6 +1943,31 @@ fn get_platform_diagnostics(
 }
 
 #[tauri::command]
+fn restart_clipboard_monitor(app: AppHandle, state: State<'_, RuntimeState>) -> Result<(), String> {
+    if let Some(shutdown) = state
+        .monitor_shutdown
+        .lock()
+        .map_err(|_| "无法访问剪贴板监听线程。".to_string())?
+        .take()
+        .map(|(_, shutdown)| shutdown)
+    {
+        shutdown.signal();
+    }
+
+    spawn_clipboard_monitor(
+        app,
+        state.notification_settings.clone(),
+        state.capture_state.clone(),
+        state.monitor_status.clone(),
+        state.monitor_shutdown.clone(),
+        state.monitor_generation.clone(),
+        state.history_lock.clone(),
+        state.suppressed_entries.clone(),
+    );
+    Ok(())
+}
+
+#[tauri::command]
 fn set_capture_state(
     app: AppHandle,
     state: State<'_, RuntimeState>,
@@ -2139,6 +2166,93 @@ fn prune_images(app: &AppHandle, entries: &[HistoryEntry]) -> Result<(), String>
     Ok(())
 }
 
+fn spawn_clipboard_monitor(
+    app: AppHandle,
+    notification_settings: Arc<RwLock<NotificationSettings>>,
+    capture_state: Arc<RwLock<CaptureState>>,
+    monitor_status: Arc<RwLock<MonitorStatus>>,
+    monitor_shutdown: Arc<Mutex<Option<(u64, Shutdown)>>>,
+    monitor_generation: Arc<AtomicU64>,
+    history_lock: Arc<Mutex<()>>,
+    suppressed_entries: Arc<RwLock<HashMap<String, Instant>>>,
+) {
+    let generation = monitor_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::Builder::new()
+        .name("clipboard-monitor".to_string())
+        .spawn(move || {
+            if monitor_generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+
+            update_monitor_status(
+                &app,
+                &monitor_status,
+                "starting",
+                "正在初始化系统剪贴板监听。",
+            );
+            let mut monitor = match Master::new(ClipboardMonitor {
+                app: app.clone(),
+                notification_settings,
+                capture_state,
+                monitor_status: monitor_status.clone(),
+                history_lock,
+                suppressed_entries,
+            }) {
+                Ok(monitor) => monitor,
+                Err(error) => {
+                    if monitor_generation.load(Ordering::SeqCst) == generation {
+                        update_monitor_status(
+                            &app,
+                            &monitor_status,
+                            "error",
+                            format!("无法初始化剪贴板监听：{error}"),
+                        );
+                    }
+                    log::error!("无法启动剪贴板监听：{error}");
+                    return;
+                }
+            };
+
+            let shutdown = monitor.shutdown_channel();
+            if monitor_generation.load(Ordering::SeqCst) != generation {
+                shutdown.signal();
+                return;
+            }
+            if let Ok(mut current) = monitor_shutdown.lock() {
+                *current = Some((generation, shutdown));
+            }
+            update_monitor_status(&app, &monitor_status, "running", "剪贴板监听已启动。");
+
+            let result = monitor.run();
+            if let Ok(mut current) = monitor_shutdown.lock() {
+                if current
+                    .as_ref()
+                    .is_some_and(|(current_generation, _)| *current_generation == generation)
+                {
+                    current.take();
+                }
+            }
+            if monitor_generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            match result {
+                Ok(()) => update_monitor_status(
+                    &app,
+                    &monitor_status,
+                    "stopped",
+                    "剪贴板监听已停止，可重新启动监听。",
+                ),
+                Err(error) => update_monitor_status(
+                    &app,
+                    &monitor_status,
+                    "error",
+                    format!("剪贴板监听已停止：{error}"),
+                ),
+            }
+        })
+        .expect("无法创建剪贴板监听线程");
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -2171,12 +2285,16 @@ pub fn run() {
             let notification_settings = Arc::new(RwLock::new(notification_settings));
             let capture_state = Arc::new(RwLock::new(CaptureState::default()));
             let monitor_status = Arc::new(RwLock::new(MonitorStatus::default()));
+            let monitor_shutdown = Arc::new(Mutex::new(None));
+            let monitor_generation = Arc::new(AtomicU64::new(0));
             let history_lock = Arc::new(Mutex::new(()));
             let suppressed_entries = Arc::new(RwLock::new(HashMap::new()));
             app.manage(RuntimeState {
                 notification_settings: notification_settings.clone(),
                 capture_state: capture_state.clone(),
                 monitor_status: monitor_status.clone(),
+                monitor_shutdown: monitor_shutdown.clone(),
+                monitor_generation: monitor_generation.clone(),
                 history_lock: history_lock.clone(),
                 suppressed_entries: suppressed_entries.clone(),
             });
@@ -2251,53 +2369,16 @@ pub fn run() {
             #[cfg(desktop)]
             build_tray(app)?;
 
-            let monitor_app = app.handle().clone();
-            let monitor_status_for_thread = monitor_status.clone();
-            std::thread::Builder::new()
-                .name("clipboard-monitor".to_string())
-                .spawn(move || {
-                    update_monitor_status(
-                        &monitor_app,
-                        &monitor_status_for_thread,
-                        "starting",
-                        "正在初始化系统剪贴板监听。",
-                    );
-                    let mut monitor = match Master::new(ClipboardMonitor {
-                        app: monitor_app.clone(),
-                        notification_settings,
-                        capture_state,
-                        monitor_status: monitor_status_for_thread.clone(),
-                        history_lock,
-                        suppressed_entries,
-                    }) {
-                        Ok(monitor) => monitor,
-                        Err(error) => {
-                            update_monitor_status(
-                                &monitor_app,
-                                &monitor_status_for_thread,
-                                "error",
-                                format!("无法初始化剪贴板监听：{error}"),
-                            );
-                            log::error!("无法启动剪贴板监听：{error}");
-                            return;
-                        }
-                    };
-                    update_monitor_status(
-                        &monitor_app,
-                        &monitor_status_for_thread,
-                        "running",
-                        "剪贴板监听已启动。",
-                    );
-                    if let Err(error) = monitor.run() {
-                        update_monitor_status(
-                            &monitor_app,
-                            &monitor_status_for_thread,
-                            "error",
-                            format!("剪贴板监听已停止：{error}"),
-                        );
-                        log::error!("剪贴板监听已停止：{error}");
-                    }
-                })?;
+            spawn_clipboard_monitor(
+                app.handle().clone(),
+                notification_settings,
+                capture_state,
+                monitor_status,
+                monitor_shutdown,
+                monitor_generation,
+                history_lock,
+                suppressed_entries,
+            );
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -2337,6 +2418,7 @@ pub fn run() {
             place_clipboard_toast,
             read_clipboard,
             reveal_sensitive_entry,
+            restart_clipboard_monitor,
             request_export_history,
             request_import_history,
             save_history,
