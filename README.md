@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：通过**：[最新主分支构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41623163248) 已完成 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，并成功构建 Apple Silicon、Intel Mac 和 Windows 安装包。Linux 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 验证。
+- **CI：通过**：[2026-11-03 主分支构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41626144358) 的 6 个 job 全部成功，包含 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，以及 Apple Silicon、Intel Mac 和 Windows 安装包构建。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 验证。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
 - **macOS：有限本机冒烟测试**：已确认普通文本自动捕获；来源应用、图片 / 文件、敏感信息、通知交互、隐私模式、开机启动和其他设备验收仍需逐项验证。
 - **Windows / Linux：构建已验证，设备验收待完成**：通知、开机启动、WebView2 或桌面环境差异需要在对应真实设备上检查。
