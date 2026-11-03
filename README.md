@@ -35,10 +35,10 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：通过**：[最新主分支构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41582875003) 已完成 Ubuntu、macOS（Apple Silicon / Intel）和 Windows 的格式检查、编译检查、Rust 测试及桌面构建。
-- **macOS：已完成本地验收**：已验证自动捕获、来源应用、完整日期时间、图片 / 文件记录、敏感内容保护、通知、暂停监听、隐私模式和开机启动。
-- **Windows：Release 构建通过**：已发布 MSI 和 EXE 安装包；真实设备上的 WebView2、通知和开机启动仍需继续验收。
-- **Linux：Release 构建通过**：已发布 `.deb` 和 `.AppImage` 安装包；不同发行版和桌面环境仍需继续验收。
+- **CI：通过**：[2026-11-03 主分支构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41618684394) 已完成 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，并成功构建 Apple Silicon、Intel Mac 和 Windows 安装包。
+- **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
+- **macOS：有限本机冒烟测试**：已确认普通文本自动捕获；来源应用、图片 / 文件、敏感信息、通知交互、隐私模式、开机启动和其他设备验收仍需逐项验证。
+- **Windows / Linux：构建已验证，设备验收待完成**：通知、开机启动、WebView2 或桌面环境差异需要在对应真实设备上检查。
 
 ## 30 秒上手
 
@@ -292,9 +292,9 @@ notifications.json  通知开关、位置和持续时间
 
 | 平台 | 当前状态 | 说明 |
 | --- | --- | --- |
-| macOS | 本地运行与 GitHub Actions 构建已验证 | Actions 提供 Apple Silicon 与 Intel 测试安装包；支持来源应用识别、系统托盘、通知和开机启动 |
-| Windows | GitHub Actions 检查与构建已验证 | Actions 提供 64 位 MSI 和 EXE 测试安装包；仍建议在真实设备验收 WebView2、通知和开机启动 |
-| Linux | GitHub Actions 检查、测试与 x64 安装包构建 | Release 提供 `.deb` 和 `.AppImage`；来源应用识别依赖桌面环境，优先使用 `xdotool`，不同桌面环境仍需实测 |
+| macOS | Apple Silicon 本机普通文本捕获已做冒烟测试；跨架构设备验收待完成 | Actions 提供 Apple Silicon 与 Intel 测试安装包；图片 / 文件、通知交互、来源应用和开机启动仍需逐项实测 |
+| Windows | GitHub Actions 检查与安装包构建已通过；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
+| Linux | GitHub Actions 检查通过；v0.1.0 x64 安装包构建已通过；真实设备验收待完成 | Release 提供 `.deb` 和 `.AppImage`；来源应用识别依赖桌面环境，优先使用 `xdotool`，不同桌面环境仍需实测 |
 
 安装后如果剪贴板没有自动进入历史，先进入 **设置 → 平台能力诊断**：
 
