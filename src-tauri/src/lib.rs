@@ -3030,6 +3030,11 @@ mod tests {
             build_toast_payload(&files, &settings, &capture_state).expect("file toast");
         assert_eq!(file_toast.message, "已复制文件：report.zip");
         assert!(!file_toast.message.contains("/Users/demo"));
+
+        let history_entry = history_entry_from_snapshot(&files);
+        assert_eq!(history_entry.kind, "文件");
+        assert_eq!(history_entry.source_app, "测试应用");
+        assert_eq!(history_entry.files, files.files);
     }
 
     #[test]
