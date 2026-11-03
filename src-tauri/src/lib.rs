@@ -320,7 +320,7 @@ impl ClipboardHandler for ClipboardMonitor {
                     // the system keyring. Do not send its plaintext into the
                     // WebView just to refresh the history list.
                     snapshot.text = None;
-                    snapshot.preview = "密码类内容".to_string();
+                    snapshot.preview = "敏感信息".to_string();
                 }
                 if let Err(error) = self.app.emit("clipboard-changed", snapshot) {
                     log::warn!("无法通知前端剪贴板变化：{error}");
@@ -692,17 +692,75 @@ fn is_sensitive_text(text: &str) -> bool {
         "private-key:",
     ];
 
-    if key_markers.iter().any(|marker| lower.contains(marker)) {
-        return true;
+    key_markers.iter().any(|marker| lower.contains(marker))
+        || lower.contains("authorization: bearer ")
+        || lower.contains("bearer ")
+        || ["ghp_", "github_pat_", "xoxb-", "sk_live_", "akia"]
+            .iter()
+            .any(|prefix| lower.contains(prefix))
+        || is_valid_payment_card_number(text)
+        || is_valid_chinese_identity_number(text)
+}
+
+fn is_valid_payment_card_number(text: &str) -> bool {
+    let digits: Vec<u32> = text
+        .trim()
+        .chars()
+        .filter(|character| *character != ' ' && *character != '-')
+        .map(|character| character.to_digit(10).unwrap_or(10))
+        .collect();
+
+    if !(13..=19).contains(&digits.len()) || digits.iter().any(|digit| *digit > 9) {
+        return false;
     }
 
-    if lower.contains("authorization: bearer ") || lower.contains("bearer ") {
-        return true;
-    }
-
-    ["ghp_", "github_pat_", "xoxb-", "sk_live_", "akia"]
+    digits
         .iter()
-        .any(|prefix| lower.contains(prefix))
+        .rev()
+        .enumerate()
+        .map(|(index, digit)| {
+            if index % 2 == 1 {
+                let doubled = digit * 2;
+                if doubled > 9 { doubled - 9 } else { doubled }
+            } else {
+                *digit
+            }
+        })
+        .sum::<u32>()
+        % 10
+        == 0
+}
+
+fn is_valid_chinese_identity_number(text: &str) -> bool {
+    use chrono::NaiveDate;
+
+    let value = text.trim().to_ascii_uppercase();
+    let bytes = value.as_bytes();
+    if bytes.len() != 18
+        || !bytes[..17].iter().all(u8::is_ascii_digit)
+        || !(bytes[17].is_ascii_digit() || bytes[17] == b'X')
+    {
+        return false;
+    }
+
+    let date_is_valid = value[6..14].parse::<i32>().ok().is_some_and(|date| {
+        let year = date / 10_000;
+        let month = (date / 100) % 100;
+        let day = date % 100;
+        NaiveDate::from_ymd_opt(year, month as u32, day as u32).is_some()
+    });
+    if !date_is_valid {
+        return false;
+    }
+
+    const WEIGHTS: [u32; 17] = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+    const CHECK_CODES: [u8; 11] = *b"10X98765432";
+    let weighted_sum: u32 = bytes[..17]
+        .iter()
+        .zip(WEIGHTS)
+        .map(|(digit, weight)| u32::from(digit - b'0') * weight)
+        .sum();
+    bytes[17] == CHECK_CODES[(weighted_sum % 11) as usize]
 }
 
 fn history_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -866,7 +924,7 @@ fn build_toast_payload(
 
     Some(ToastPayload {
         kind: if sensitive {
-            "密码".to_string()
+            "敏感信息".to_string()
         } else if snapshot.kind == "image" {
             "图片".to_string()
         } else if snapshot.kind == "files" {
@@ -875,7 +933,7 @@ fn build_toast_payload(
             "新剪贴板内容".to_string()
         },
         message: if sensitive {
-            "已复制密码类内容：********（点击查看记录）".to_string()
+            "已复制敏感信息：******（点击查看记录）".to_string()
         } else if snapshot.kind == "image" {
             format!(
                 "已复制一张图片：{} × {}",
@@ -988,7 +1046,7 @@ fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
             (
                 text.clone(),
                 if snapshot.sensitivity == "sensitive" {
-                    "密码信息".to_string()
+                    "敏感信息".to_string()
                 } else {
                     notification_title(&text)
                 },
@@ -1060,8 +1118,8 @@ fn protect_sensitive_entries(entries: &mut [HistoryEntry]) -> Result<bool, Strin
             entry.category = "password".to_string();
             changed = true;
         }
-        if entry.title.is_empty() || entry.title == entry.text {
-            entry.title = "密码信息".to_string();
+        if entry.title != "敏感信息" {
+            entry.title = "敏感信息".to_string();
             changed = true;
         }
         if !entry.text.is_empty() {
@@ -2520,6 +2578,23 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_valid_payment_card_numbers_with_common_separators() {
+        assert!(is_sensitive_text("4111111111111111"));
+        assert!(is_sensitive_text("4111 1111 1111 1111"));
+        assert!(is_sensitive_text("4111-1111-1111-1111"));
+        assert!(!is_sensitive_text("4111 1111 1111 1112"));
+        assert!(!is_sensitive_text("12345678901234567890"));
+    }
+
+    #[test]
+    fn recognizes_valid_chinese_identity_numbers_only() {
+        assert!(is_sensitive_text("11010519491231002X"));
+        assert!(!is_sensitive_text("110105194912310021"));
+        assert!(!is_sensitive_text("11010518991231002X"));
+        assert!(!is_sensitive_text("123456789012345678"));
+    }
+
+    #[test]
     fn skips_leading_blank_lines_for_history_and_notification_titles() {
         let text = "\n \t\n  Actual title line  \nbody";
         assert_eq!(notification_title(text), "Actual title line");
@@ -2612,6 +2687,30 @@ mod tests {
             entry.secret_ref.as_deref(),
             Some("entry:text-sensitive-test")
         );
+        assert_eq!(entry.title, "敏感信息");
+    }
+
+    #[test]
+    fn sensitive_multiline_entry_uses_a_generic_title() {
+        let snapshot = ClipboardSnapshot {
+            kind: "text",
+            sensitivity: "sensitive",
+            text: Some("password=synthetic-test\nprivate detail".to_string()),
+            preview: "password=synthetic-test\nprivate detail".to_string(),
+            length: 38,
+            entry_id: "text-sensitive-multiline-test".to_string(),
+            source_app: "测试应用".to_string(),
+            persisted: false,
+            image_id: None,
+            image_width: None,
+            image_height: None,
+            files: None,
+            toast: None,
+        };
+
+        let entry = history_entry_from_snapshot(&snapshot);
+        assert_eq!(entry.title, "敏感信息");
+        assert!(!entry.title.contains("synthetic-test"));
     }
 
     #[test]
@@ -2669,7 +2768,7 @@ mod tests {
         let mut password = entry("password-1", "");
         password.category = "password".to_string();
         password.kind = "文本".to_string();
-        password.title = "密码信息".to_string();
+        password.title = "敏感信息".to_string();
 
         let entries = normalize_history(vec![password]);
 
@@ -2826,9 +2925,9 @@ mod tests {
 
         let toast = build_toast_payload(&snapshot, &settings, &capture_state)
             .expect("toast should be enabled");
-        assert_eq!(toast.kind, "密码");
+        assert_eq!(toast.kind, "敏感信息");
         assert_eq!(toast.entry_id, "text-test");
-        assert_eq!(toast.message, "已复制密码类内容：********（点击查看记录）");
+        assert_eq!(toast.message, "已复制敏感信息：******（点击查看记录）");
         assert!(!toast.message.contains("do-not-show-this"));
     }
 

@@ -434,14 +434,14 @@
   }
 
   function titleForCategory(category, firstLine) {
-    if (category === "password") return "密码信息";
+    if (category === "password") return "敏感信息";
     if (category === "url") return firstLine || "URL 地址";
     if (category === "account") return "账号信息";
     return firstLine || "空文本";
   }
 
   function categoryLabel(category) {
-    return { text: "文本", url: "URL", account: "账号", password: "密码", image: "图片", file: "文件" }[category] || "文本";
+    return { text: "文本", url: "URL", account: "账号", password: "敏感信息", image: "图片", file: "文件" }[category] || "文本";
   }
 
   function normalizeTags(tags) {
@@ -452,7 +452,7 @@
   }
 
   function maskedProtectedText() {
-    return "********";
+    return "******";
   }
 
   function normalizeEntry(entry) {
@@ -985,7 +985,7 @@
     const copyEntryButton = document.querySelector('[data-action="copy-entry"]');
     if (copyEntryButton) copyEntryButton.disabled = !revealed;
     elements.revealProtected.querySelector(".reveal-label").textContent = revealed ? "隐藏原文" : "显示原文";
-    elements.revealProtected.setAttribute("aria-label", revealed ? "隐藏密码原文" : "显示密码原文");
+    elements.revealProtected.setAttribute("aria-label", revealed ? "隐藏敏感信息原文" : "显示敏感信息原文");
     elements.revealProtected.setAttribute("aria-pressed", String(revealed));
   }
 
@@ -1026,7 +1026,7 @@
         throw new Error("请先点击“显示原文”。");
       }
       await invoke("copy_sensitive_entry", { entryId: entry.id });
-      setMessage("密码原文已复制到系统剪贴板。");
+      setMessage("敏感信息原文已复制到系统剪贴板。");
     } catch (error) {
       setMessage(String(error));
     }
@@ -1155,9 +1155,9 @@
     }
 
     if (entry.category === "password") {
-      if (state.revealedEntryId !== entry.id) throw new Error("请先点击“显示原文”，再复制密码。");
+      if (state.revealedEntryId !== entry.id) throw new Error("请先点击“显示原文”，再复制敏感信息。");
       await invoke("copy_sensitive_entry", { entryId: entry.id });
-      setMessage("密码原文已复制到系统剪贴板。");
+      setMessage("敏感信息原文已复制到系统剪贴板。");
       return;
     }
 

@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：通过**：[最新主分支构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41505293590) 已完成 Ubuntu、macOS（Apple Silicon / Intel）和 Windows 的格式检查、编译检查、Rust 测试及桌面构建。
+- **CI：通过**：[最新主分支构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41582875003) 已完成 Ubuntu、macOS（Apple Silicon / Intel）和 Windows 的格式检查、编译检查、Rust 测试及桌面构建。
 - **macOS：已完成本地验收**：已验证自动捕获、来源应用、完整日期时间、图片 / 文件记录、敏感内容保护、通知、暂停监听、隐私模式和开机启动。
 - **Windows：Release 构建通过**：已发布 MSI 和 EXE 安装包；真实设备上的 WebView2、通知和开机启动仍需继续验收。
 - **Linux：Release 构建通过**：已发布 `.deb` 和 `.AppImage` 安装包；不同发行版和桌面环境仍需继续验收。
@@ -157,10 +157,10 @@
 
 ### 敏感内容保护
 
-- 密码、Token、API Key 等内容在列表和桌面提示中显示为 `********`。
+- 密码、Token、API Key、通过校验的银行卡号和中国居民身份证号等内容，在列表和桌面提示中显示为 `******`。
 - 点击眼睛按钮后可以临时查看原文，查看后仍然可以复制。
 - 敏感原文使用当前系统的安全凭据存储，不直接写入历史 JSON。
-- 敏感识别采用启发式规则，妙夹不是密码管理器，不能替代专业密钥管理工具。
+- 敏感识别采用启发式规则：凭据字段按常见标记识别，银行卡号校验 Luhn，身份证号校验日期和校验位。妙夹不是密码管理器，不能替代专业密钥管理工具。
 
 ### 暂停、隐私与通知
 
@@ -277,7 +277,7 @@ images/             图片的本地副本
 notifications.json  通知开关、位置和持续时间
 ```
 
-密码、Token、API Key 等被识别为敏感内容后，原文不会再写入 `history.json`。妙夹会使用当前系统的安全凭据存储保存正文：macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret Service；历史文件只保存记录元数据和安全存储引用。点击“显示原文”或“复制原文”时，妙夹才会按需读取。
+密码、Token、API Key、通过校验的银行卡号和中国居民身份证号等被识别为敏感内容后，原文不会再写入 `history.json`，记录标题和提示也不会包含原文。妙夹会使用当前系统的安全凭据存储保存正文：macOS 使用 Keychain，Windows 使用 Credential Manager，Linux 使用 Secret Service；历史文件只保存通用标题、记录元数据和安全存储引用。点击“显示原文”或“复制原文”时，妙夹才会按需读取。数据仅保存在本机，不会上传云端。
 
 隐私模式开启后会同时做到：
 

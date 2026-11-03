@@ -54,7 +54,7 @@
               <button class="quiet-button" id="exit-selection" type="button">完成</button>
             </div>
             <div class="filter-bar" aria-label="筛选内容">
-              <select id="category-filter" aria-label="按类型筛选"><option value="all">全部类型</option><option value="text">文本</option><option value="url">URL</option><option value="account">账号</option><option value="password">密码</option><option value="image">图片</option><option value="file">文件</option></select>
+              <select id="category-filter" aria-label="按类型筛选"><option value="all">全部类型</option><option value="text">文本</option><option value="url">URL</option><option value="account">账号</option><option value="password">敏感信息</option><option value="image">图片</option><option value="file">文件</option></select>
               <select id="source-filter" aria-label="按来源应用筛选"><option value="all">全部来源</option></select>
               <select id="tag-filter" aria-label="按标签筛选"><option value="all">全部标签</option></select>
               <select id="time-filter" aria-label="按时间筛选"><option value="all">全部时间</option><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="custom">自定义</option></select>
@@ -78,9 +78,9 @@
             </div>
             <div class="detail-preview" id="clipboard-preview">读取剪贴板后，内容预览会显示在这里。</div>
             <div class="protected-controls" id="protected-controls" hidden>
-              <span>密码类内容会保存到系统安全存储，历史文件只保留引用，默认遮罩原文。</span>
+              <span>密码、银行卡号、身份证号等敏感内容会保存到系统安全存储，历史文件只保留引用，默认遮罩原文。</span>
               <div class="protected-actions">
-                <button class="quiet-button reveal-button" id="reveal-protected" type="button" aria-label="显示密码原文" aria-pressed="false"><span class="eye-glyph" aria-hidden="true"></span><span class="reveal-label">显示原文</span></button>
+                <button class="quiet-button reveal-button" id="reveal-protected" type="button" aria-label="显示敏感信息原文" aria-pressed="false"><span class="eye-glyph" aria-hidden="true"></span><span class="reveal-label">显示原文</span></button>
                 <button class="quiet-button copy-protected-button" id="copy-protected" type="button" disabled>复制原文</button>
               </div>
             </div>
@@ -114,7 +114,7 @@
           <div class="settings-list">
             <label class="setting-row"><span><strong>应用内提示</strong><small>在妙夹窗口右上角显示“收到新内容”的提示。</small></span><input id="notify-in-app" type="checkbox" checked /></label>
             <label class="setting-row"><span><strong>桌面浮层提示</strong><small>像收到消息一样在桌面角落弹出，不需要打开妙夹主窗口；原文不会进入系统通知中心。</small></span><input id="notify-desktop" type="checkbox" checked /></label>
-            <label class="setting-row"><span><strong>密码复制提醒</strong><small>复制密码或 Token 时显示安全提醒，不展示原文。</small></span><input id="notify-sensitive" type="checkbox" checked /></label>
+            <label class="setting-row"><span><strong>敏感信息复制提醒</strong><small>复制密码、Token、银行卡号或身份证号时显示安全提醒，不展示原文。</small></span><input id="notify-sensitive" type="checkbox" checked /></label>
             <label class="setting-row"><span><strong>开机后自动启动妙夹</strong><small>进入系统后在后台自动运行妙夹，方便持续监听剪贴板；不会改变当前历史内容。</small></span><input id="launch-at-login" type="checkbox" /></label>
             <label class="setting-row setting-row-info"><span><strong>快速粘贴入口</strong><small>按 <kbd>⌘/Ctrl + Shift + Space</kbd> 打开妙夹，输入关键词后用 ↑↓ 选择，按 Enter 复制，按 Esc 收起。</small></span><input id="quick-paste-enabled" type="checkbox" checked /></label>
             <label class="setting-row setting-row-warning"><span><strong>隐私模式</strong><small>暂停自动捕获、桌面通知和新记录写入；适合复制银行卡号、身份证或私人聊天内容，关闭妙夹后会自动恢复监听。</small></span><input id="privacy-mode" type="checkbox" /></label>
@@ -122,7 +122,7 @@
             <label class="setting-row"><span><strong>提示框持续时间</strong><small>控制桌面浮层和妙夹窗口内提示显示多久，时间到后会自动消失。</small></span><select id="notify-duration"><option value="1500">1.5 秒</option><option value="2500">2.5 秒</option><option value="3000" selected>3 秒</option><option value="5000">5 秒</option><option value="8000">8 秒</option><option value="15000">15 秒</option></select></label>
             <label class="setting-row setting-row-warning"><span><strong>自动清理历史</strong><small>按下面的保留时间自动清理未收藏记录；收藏内容永远保留。默认关闭，开启后会在后台执行。</small></span><input id="cleanup-enabled" type="checkbox" /></label>
             <div class="setting-row setting-row-cleanup"><span><strong>清理规则</strong><small>自动清理只处理超过保留时间且未收藏的内容；图片和敏感正文也会同步清理。</small></span><div class="setting-controls"><select id="cleanup-days" aria-label="历史保留时间"><option value="1">保留 1 天</option><option value="3">保留 3 天</option><option value="7">保留 7 天</option><option value="14">保留 14 天</option><option value="30" selected>保留 30 天</option><option value="60">保留 60 天</option><option value="90">保留 90 天</option><option value="180">保留 180 天</option><option value="365">保留 1 年</option></select><select id="cleanup-schedule" aria-label="自动清理频率"><option value="startup">每次启动时</option><option value="daily">每天</option><option value="weekly">每周</option></select><button class="quiet-button danger-button" id="cleanup-old-history" type="button">立即清理</button></div></div>
-            <div class="setting-row setting-row-backup"><span><strong>历史备份</strong><small>导出或导入本机历史，导入会与现有内容合并；敏感内容只保留遮罩后的记录信息，不会写入密码原文。</small></span><div class="setting-controls"><button class="quiet-button" id="export-history" type="button">导出历史</button><button class="quiet-button" id="import-history" type="button">导入历史</button></div></div>
+            <div class="setting-row setting-row-backup"><span><strong>历史备份</strong><small>导出或导入本机历史，导入会与现有内容合并；敏感内容只保留遮罩后的记录信息，不会导出原文。</small></span><div class="setting-controls"><button class="quiet-button" id="export-history" type="button">导出历史</button><button class="quiet-button" id="import-history" type="button">导入历史</button></div></div>
           </div>
           <p class="settings-note" id="settings-note">通知设置只保存在本机。备份文件仍可能包含普通文本、URL、文件路径和图片，请妥善保管。</p>
           <section class="diagnostics-panel" aria-labelledby="diagnostics-heading">
