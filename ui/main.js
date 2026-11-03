@@ -25,6 +25,10 @@
       inApp: true,
       desktop: true,
       sensitive: true,
+      captureImages: true,
+      captureFiles: true,
+      showSourceApp: true,
+      toastClickAction: "entry",
       quickPasteEnabled: true,
       position: "bottom-right",
       durationMs: 3000,
@@ -61,6 +65,10 @@
     notifyInApp: document.getElementById("notify-in-app"),
     notifyDesktop: document.getElementById("notify-desktop"),
     notifySensitive: document.getElementById("notify-sensitive"),
+    captureImages: document.getElementById("capture-images"),
+    captureFiles: document.getElementById("capture-files"),
+    showSourceApp: document.getElementById("show-source-app"),
+    toastClickAction: document.getElementById("toast-click-action"),
     quickPasteEnabled: document.getElementById("quick-paste-enabled"),
     notifyPosition: document.getElementById("notify-position"),
     notifyDuration: document.getElementById("notify-duration"),
@@ -264,6 +272,10 @@
       inApp: settings.in_app ?? settings.inApp ?? true,
       desktop: settings.desktop ?? true,
       sensitive: settings.sensitive ?? true,
+      captureImages: settings.capture_images ?? settings.captureImages ?? true,
+      captureFiles: settings.capture_files ?? settings.captureFiles ?? true,
+      showSourceApp: settings.show_source_app ?? settings.showSourceApp ?? true,
+      toastClickAction: settings.toast_click_action ?? settings.toastClickAction ?? "entry",
       quickPasteEnabled: settings.quick_paste_enabled ?? settings.quickPasteEnabled ?? true,
       position: settings.position || "bottom-right",
       durationMs: normalizeNotificationDuration(settings.duration_ms ?? settings.durationMs),
@@ -278,6 +290,10 @@
       in_app: Boolean(settings.inApp),
       desktop: Boolean(settings.desktop),
       sensitive: Boolean(settings.sensitive),
+      capture_images: Boolean(settings.captureImages),
+      capture_files: Boolean(settings.captureFiles),
+      show_source_app: Boolean(settings.showSourceApp),
+      toast_click_action: settings.toastClickAction,
       quick_paste_enabled: Boolean(settings.quickPasteEnabled),
       position: settings.position,
       duration_ms: normalizeNotificationDuration(settings.durationMs),
@@ -308,6 +324,10 @@
     elements.notifyInApp.checked = state.notificationSettings.inApp;
     elements.notifyDesktop.checked = state.notificationSettings.desktop;
     elements.notifySensitive.checked = state.notificationSettings.sensitive;
+    elements.captureImages.checked = state.notificationSettings.captureImages;
+    elements.captureFiles.checked = state.notificationSettings.captureFiles;
+    elements.showSourceApp.checked = state.notificationSettings.showSourceApp;
+    elements.toastClickAction.value = state.notificationSettings.toastClickAction;
     elements.quickPasteEnabled.checked = state.notificationSettings.quickPasteEnabled;
     elements.notifyPosition.value = state.notificationSettings.position;
     elements.notifyDuration.value = String(state.notificationSettings.durationMs);
@@ -326,6 +346,10 @@
     elements.notifyInApp.checked = state.notificationSettings.inApp;
     elements.notifyDesktop.checked = state.notificationSettings.desktop;
     elements.notifySensitive.checked = state.notificationSettings.sensitive;
+    elements.captureImages.checked = state.notificationSettings.captureImages;
+    elements.captureFiles.checked = state.notificationSettings.captureFiles;
+    elements.showSourceApp.checked = state.notificationSettings.showSourceApp;
+    elements.toastClickAction.value = state.notificationSettings.toastClickAction;
     elements.quickPasteEnabled.checked = state.notificationSettings.quickPasteEnabled;
     elements.notifyPosition.value = state.notificationSettings.position;
     elements.notifyDuration.value = String(state.notificationSettings.durationMs);
@@ -654,7 +678,8 @@
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${protectedEntry ? " is-protected" : ""}`;
       if (state.selectionMode) card.classList.add("is-selection-mode");
       if (state.quickPasteMode && index === state.quickPasteIndex) card.classList.add("is-quick-selected");
-      card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small><small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small><span class="feed-tags">${tags}</span></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
+      const sourceMarkup = state.notificationSettings.showSourceApp ? `<small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small>` : "";
+      card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small>${sourceMarkup}<span class="feed-tags">${tags}</span></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
       card.querySelector(".entry-select").addEventListener("change", (event) => toggleEntrySelection(entry.id, event));
       card.querySelector(".feed-card-main").addEventListener("click", (event) => {
         if (!state.selectionMode) {
@@ -921,7 +946,9 @@
     elements.detailHeading.textContent = entry.title;
     elements.contentKind.textContent = categoryLabel(entry.category);
     elements.contentLength.textContent = entry.kind === "图片" ? `${entry.image_width} × ${entry.image_height}` : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${entry.length || 0} 字符`;
-    elements.contentTime.textContent = `来自：${entry.source_app || "未知应用"} · ${formatTime(entry.time)}`;
+    elements.contentTime.textContent = state.notificationSettings.showSourceApp
+      ? `来自：${entry.source_app || "未知应用"} · ${formatTime(entry.time)}`
+      : formatTime(entry.time);
     const protectedEntry = entry.category === "password";
     elements.protectedControls.hidden = !protectedEntry;
     const keepRevealed = protectedEntry && state.revealedEntryId === entry.id;
@@ -1048,6 +1075,11 @@
 
   async function handleClipboardSnapshot(snapshot, automatic = false) {
     if (automatic && (state.captureState.paused || state.captureState.privacyMode)) return;
+    if ((snapshot.kind === "image" && !state.notificationSettings.captureImages)
+      || (snapshot.kind === "files" && !state.notificationSettings.captureFiles)) {
+      if (!automatic) setMessage("此类内容的捕获已关闭，未写入历史。");
+      return;
+    }
     if (snapshot.kind === "other") {
       if (!automatic) setMessage(snapshot.preview);
       return;
@@ -1063,13 +1095,13 @@
       kind,
       category: kind === "图片" ? "image" : "file",
       time: new Date().toISOString(),
-      source_app: snapshot.source_app || snapshot.sourceApp || "未知应用",
+      source_app: state.notificationSettings.showSourceApp ? (snapshot.source_app || snapshot.sourceApp || "未知应用") : "未知应用",
       pinned: false,
       image_id: snapshot.image_id || null,
       image_width: snapshot.image_width || null,
       image_height: snapshot.image_height || null,
       files: snapshot.files || null,
-    } : { ...makeEntry(text, new Date().toISOString(), snapshot.entry_id, snapshot.sensitivity), source_app: snapshot.source_app || snapshot.sourceApp || "未知应用" };
+    } : { ...makeEntry(text, new Date().toISOString(), snapshot.entry_id, snapshot.sensitivity), source_app: state.notificationSettings.showSourceApp ? (snapshot.source_app || snapshot.sourceApp || "未知应用") : "未知应用" };
     if (kind) entry.id = snapshot.entry_id || entry.id;
     const isProtected = entry.category === "password";
     if (isProtected && (!automatic || !snapshot.persisted)) {
@@ -1370,6 +1402,28 @@
   elements.notifySensitive.addEventListener("change", () => {
     const previousSettings = { ...state.notificationSettings };
     state.notificationSettings.sensitive = elements.notifySensitive.checked;
+    saveNotificationSettings(previousSettings);
+  });
+  elements.captureImages.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
+    state.notificationSettings.captureImages = elements.captureImages.checked;
+    saveNotificationSettings(previousSettings);
+  });
+  elements.captureFiles.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
+    state.notificationSettings.captureFiles = elements.captureFiles.checked;
+    saveNotificationSettings(previousSettings);
+  });
+  elements.showSourceApp.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
+    state.notificationSettings.showSourceApp = elements.showSourceApp.checked;
+    saveNotificationSettings(previousSettings);
+    renderFeed();
+    if (state.selectedId) selectEntry(state.selectedId);
+  });
+  elements.toastClickAction.addEventListener("change", () => {
+    const previousSettings = { ...state.notificationSettings };
+    state.notificationSettings.toastClickAction = elements.toastClickAction.value;
     saveNotificationSettings(previousSettings);
   });
   elements.quickPasteEnabled.addEventListener("change", () => {

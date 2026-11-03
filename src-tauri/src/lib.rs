@@ -153,6 +153,14 @@ struct NotificationSettings {
     in_app: bool,
     desktop: bool,
     sensitive: bool,
+    #[serde(default = "default_capture_enabled")]
+    capture_images: bool,
+    #[serde(default = "default_capture_enabled")]
+    capture_files: bool,
+    #[serde(default = "default_capture_enabled")]
+    show_source_app: bool,
+    #[serde(default = "default_toast_click_action")]
+    toast_click_action: String,
     #[serde(default = "default_quick_paste_enabled")]
     quick_paste_enabled: bool,
     position: String,
@@ -174,6 +182,14 @@ fn default_quick_paste_enabled() -> bool {
     true
 }
 
+fn default_capture_enabled() -> bool {
+    true
+}
+
+fn default_toast_click_action() -> String {
+    "entry".to_string()
+}
+
 fn default_cleanup_days() -> u64 {
     30
 }
@@ -188,6 +204,10 @@ impl Default for NotificationSettings {
             in_app: true,
             desktop: true,
             sensitive: true,
+            capture_images: true,
+            capture_files: true,
+            show_source_app: true,
+            toast_click_action: default_toast_click_action(),
             quick_paste_enabled: true,
             position: "bottom-right".to_string(),
             duration_ms: DEFAULT_NOTIFICATION_DURATION_MS,
@@ -267,6 +287,7 @@ struct ToastPayload {
     kind: String,
     message: String,
     entry_id: String,
+    click_action: String,
     position: String,
     duration_ms: u64,
     fade_ms: u64,
@@ -293,7 +314,11 @@ impl ClipboardHandler for ClipboardMonitor {
         if capture_suspended(&self.capture_state) {
             return CallbackResult::Next;
         }
-        match read_clipboard_snapshot(&self.app) {
+        let settings = match self.notification_settings.read() {
+            Ok(settings) => settings.clone(),
+            Err(_) => return CallbackResult::Next,
+        };
+        match read_clipboard_snapshot(&self.app, &settings) {
             Ok(mut snapshot) => {
                 update_monitor_status(
                     &self.app,
@@ -303,6 +328,14 @@ impl ClipboardHandler for ClipboardMonitor {
                 );
                 if consume_suppressed_entry(&self.suppressed_entries, &snapshot.entry_id) {
                     return CallbackResult::Next;
+                }
+                if (snapshot.kind == "image" && !settings.capture_images)
+                    || (snapshot.kind == "files" && !settings.capture_files)
+                {
+                    return CallbackResult::Next;
+                }
+                if !settings.show_source_app {
+                    snapshot.source_app = default_source_app();
                 }
                 if snapshot.kind != "other" && snapshot.kind != "empty" {
                     match persist_captured_snapshot(&self.app, &snapshot, &self.history_lock) {
@@ -876,6 +909,10 @@ fn normalize_notification_settings(mut settings: NotificationSettings) -> Notifi
         .clamp(MIN_NOTIFICATION_DURATION_MS, MAX_NOTIFICATION_DURATION_MS);
     settings.cleanup_days = settings.cleanup_days.clamp(1, 3650);
     settings.cleanup_schedule = normalize_cleanup_schedule(&settings.cleanup_schedule);
+    settings.toast_click_action = match settings.toast_click_action.as_str() {
+        "entry" | "window" => settings.toast_click_action,
+        _ => default_toast_click_action(),
+    };
     settings
 }
 
@@ -956,6 +993,7 @@ fn build_toast_payload(
             )
         },
         entry_id: snapshot.entry_id.clone(),
+        click_action: settings.toast_click_action.clone(),
         position: normalize_position(&settings.position),
         duration_ms: settings.duration_ms,
         fade_ms: 180,
@@ -1547,11 +1585,22 @@ fn image_file_to_snapshot(app: &AppHandle, path: &Path) -> Option<ClipboardSnaps
 }
 
 #[tauri::command]
-fn read_clipboard(app: AppHandle) -> Result<ClipboardSnapshot, String> {
-    read_clipboard_snapshot(&app)
+fn read_clipboard(
+    app: AppHandle,
+    state: State<'_, RuntimeState>,
+) -> Result<ClipboardSnapshot, String> {
+    let settings = state
+        .notification_settings
+        .read()
+        .map_err(|_| "无法读取剪贴板捕获设置。".to_string())?
+        .clone();
+    read_clipboard_snapshot(&app, &settings)
 }
 
-fn read_clipboard_snapshot(app: &AppHandle) -> Result<ClipboardSnapshot, String> {
+fn read_clipboard_snapshot(
+    app: &AppHandle,
+    settings: &NotificationSettings,
+) -> Result<ClipboardSnapshot, String> {
     if let Ok(clipboard) = ClipboardContext::new() {
         // Some macOS sources expose both file URLs and a rendered image on the
         // same pasteboard. Prefer the actual image payload so copied pictures
@@ -1569,6 +1618,9 @@ fn read_clipboard_snapshot(app: &AppHandle) -> Result<ClipboardSnapshot, String>
         let image = decode_image_buffers(raw_image_buffers).or_else(|| clipboard.get_image().ok());
 
         if let Some(image) = image {
+            if !settings.capture_images {
+                return Ok(ignored_capture_snapshot("图片捕获已关闭"));
+            }
             let (width, height) = image.get_size();
             let png = image
                 .to_png()
@@ -1581,12 +1633,15 @@ fn read_clipboard_snapshot(app: &AppHandle) -> Result<ClipboardSnapshot, String>
 
         if let Ok(files) = clipboard.get_files() {
             if !files.is_empty() {
-                if files.len() == 1 {
+                if settings.capture_images && files.len() == 1 {
                     if let Some(snapshot) = image_file_to_snapshot(app, Path::new(&files[0])) {
                         let mut snapshot = snapshot;
                         snapshot.source_app = source_app_name();
                         return Ok(snapshot);
                     }
+                }
+                if !settings.capture_files {
+                    return Ok(ignored_capture_snapshot("文件捕获已关闭"));
                 }
 
                 let first_name = PathBuf::from(&files[0])
@@ -1614,6 +1669,9 @@ fn read_clipboard_snapshot(app: &AppHandle) -> Result<ClipboardSnapshot, String>
 
     let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
     if let Ok(image) = clipboard.get_image() {
+        if !settings.capture_images {
+            return Ok(ignored_capture_snapshot("图片捕获已关闭"));
+        }
         let mut snapshot = arboard_image_to_snapshot(app, image)?;
         snapshot.source_app = source_app_name();
         return Ok(snapshot);
@@ -1658,6 +1716,24 @@ fn read_clipboard_snapshot(app: &AppHandle) -> Result<ClipboardSnapshot, String>
             files: None,
             toast: None,
         }),
+    }
+}
+
+fn ignored_capture_snapshot(message: &'static str) -> ClipboardSnapshot {
+    ClipboardSnapshot {
+        kind: "other",
+        sensitivity: "normal",
+        text: None,
+        preview: message.to_string(),
+        length: 0,
+        entry_id: content_entry_id("ignored", message.as_bytes()),
+        source_app: default_source_app(),
+        persisted: false,
+        image_id: None,
+        image_width: None,
+        image_height: None,
+        files: None,
+        toast: None,
     }
 }
 
@@ -1914,6 +1990,24 @@ fn open_clipboard_entry(app: AppHandle, entry_id: String) -> Result<(), String> 
     }
     app.emit("open-clipboard-entry", entry_id)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn open_main_window(app: AppHandle) -> Result<(), String> {
+    if let Some(toast) = app.get_webview_window("toast") {
+        toast.hide().map_err(|error| error.to_string())?;
+    }
+    #[cfg(desktop)]
+    show_main_window(&app)?;
+    #[cfg(not(desktop))]
+    {
+        let main = app
+            .get_webview_window("main")
+            .ok_or_else(|| "主窗口不可用。".to_string())?;
+        main.show().map_err(|error| error.to_string())?;
+        main.set_focus().map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -2473,6 +2567,7 @@ pub fn run() {
             load_history_image,
             load_file_image,
             open_clipboard_entry,
+            open_main_window,
             place_clipboard_toast,
             read_clipboard,
             reveal_sensitive_entry,
@@ -2846,6 +2941,42 @@ mod tests {
         assert_eq!(normalized.cleanup_days, 1);
         assert_eq!(normalized.cleanup_schedule, "startup");
         assert_eq!(normalize_cleanup_schedule("weekly"), "weekly");
+    }
+
+    #[test]
+    fn loads_legacy_notification_settings_with_new_defaults() {
+        let legacy = r#"{
+            "in_app": true,
+            "desktop": true,
+            "sensitive": true,
+            "quick_paste_enabled": true,
+            "position": "bottom-right",
+            "duration_ms": 3000,
+            "cleanup_enabled": false,
+            "cleanup_days": 30,
+            "cleanup_schedule": "startup"
+        }"#;
+        let settings: NotificationSettings = serde_json::from_str(legacy).unwrap();
+
+        assert!(settings.capture_images);
+        assert!(settings.capture_files);
+        assert!(settings.show_source_app);
+        assert_eq!(settings.toast_click_action, "entry");
+    }
+
+    #[test]
+    fn normalizes_unknown_toast_click_action() {
+        let settings = normalize_notification_settings(NotificationSettings {
+            toast_click_action: "unknown".to_string(),
+            ..NotificationSettings::default()
+        });
+
+        assert_eq!(settings.toast_click_action, "entry");
+        let settings = normalize_notification_settings(NotificationSettings {
+            toast_click_action: "window".to_string(),
+            ..NotificationSettings::default()
+        });
+        assert_eq!(settings.toast_click_action, "window");
     }
 
     #[test]

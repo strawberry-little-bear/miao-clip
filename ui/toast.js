@@ -10,6 +10,7 @@
   let hideWindowTimer = 0;
   let generation = 0;
   let currentEntryId = null;
+  let currentClickAction = "entry";
 
   function hideWindow(fadeMs) {
     const current = ++generation;
@@ -24,7 +25,9 @@
   if (!listen) return;
 
   root.addEventListener("click", () => {
-    if (currentEntryId) invoke?.("open_clipboard_entry", { entryId: currentEntryId }).catch(() => {});
+    const command = currentClickAction === "window" ? "open_main_window" : "open_clipboard_entry";
+    const args = currentClickAction === "window" ? undefined : { entryId: currentEntryId };
+    invoke?.(command, args).catch(() => {});
   });
 
   listen("clipboard-changed", async ({ payload }) => {
@@ -33,6 +36,7 @@
     const durationMs = Math.max(1000, Number(next.duration_ms) || 3000);
     const fadeMs = Math.max(0, Number(next.fade_ms) || 180);
     currentEntryId = next.entry_id || null;
+    currentClickAction = next.click_action === "window" ? "window" : "entry";
     generation += 1;
     window.clearTimeout(hideTimer);
     window.clearTimeout(hideWindowTimer);
