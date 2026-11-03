@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：通过**：[主分支构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41496603547) 已完成 Ubuntu、macOS 和 Windows 的格式检查、编译检查、Rust 测试和桌面构建。
+- **CI：通过**：[最新主分支构建记录](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41505293590) 已完成 Ubuntu、macOS（Apple Silicon / Intel）和 Windows 的格式检查、编译检查、Rust 测试及桌面构建。
 - **macOS：已完成本地验收**：已验证自动捕获、来源应用、完整日期时间、图片 / 文件记录、敏感内容保护、通知、暂停监听、隐私模式和开机启动。
 - **Windows：Release 构建通过**：已发布 MSI 和 EXE 安装包；真实设备上的 WebView2、通知和开机启动仍需继续验收。
 - **Linux：Release 构建通过**：已发布 `.deb` 和 `.AppImage` 安装包；不同发行版和桌面环境仍需继续验收。

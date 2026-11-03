@@ -1542,7 +1542,7 @@ fn read_clipboard_snapshot(app: &AppHandle) -> Result<ClipboardSnapshot, String>
                     preview: format!("{first_name} 等 {} 个", files.len()),
                     length: files.len(),
                     entry_id: content_entry_id("files", files.join("\0").as_bytes()),
-                    source_app: default_source_app(),
+                    source_app: source_app_name(),
                     persisted: false,
                     image_id: None,
                     image_width: None,
