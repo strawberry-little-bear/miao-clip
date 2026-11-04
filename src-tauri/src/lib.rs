@@ -1671,7 +1671,8 @@ fn migrate_image_file_entry(app: &AppHandle, entry: HistoryEntry) -> HistoryEntr
         return entry;
     }
 
-    let Some(snapshot) = image_file_to_snapshot(app, Path::new(&files[0])) else {
+    let normalized_path = normalize_file_path(&files[0]);
+    let Some(snapshot) = image_file_to_snapshot(app, Path::new(&normalized_path)) else {
         return entry;
     };
 

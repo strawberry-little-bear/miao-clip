@@ -480,7 +480,13 @@
   }
 
   function normalizeEntry(entry) {
-    const mediaCategory = entry.kind === "图片" || entry.category === "image" || entry.image_id
+    // Older history can contain a single image path recorded as a generic
+    // file. Recover the user-facing image type even when the original bytes
+    // are no longer decodable; the detail view will show the downgrade state.
+    const imageFile = Array.isArray(entry.files)
+      && entry.files.length === 1
+      && isImagePath(entry.files[0]);
+    const mediaCategory = entry.kind === "图片" || entry.category === "image" || entry.image_id || imageFile
       ? "image"
       : Array.isArray(entry.files) ? "file" : null;
     const detectedCategory = classifyText(entry.text || "");
@@ -583,7 +589,8 @@
         status.remove();
       } catch (error) {
         if (!item.isConnected) return;
-        status.textContent = `图片无法预览：${error}`;
+        status.textContent = "图片无法解码，可复制原文件";
+        status.title = String(error);
       }
       return;
     }
