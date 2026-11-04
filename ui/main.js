@@ -484,7 +484,10 @@
       ? "image"
       : Array.isArray(entry.files) ? "file" : null;
     const detectedCategory = classifyText(entry.text || "");
-    const category = mediaCategory || (entry.category === "password" ? "password" : detectedCategory);
+    const nativeCategory = ["text", "url", "account", "password"].includes(entry.category)
+      ? entry.category
+      : null;
+    const category = mediaCategory || nativeCategory || detectedCategory;
     const kind = mediaCategory === "image" ? "图片" : mediaCategory === "file" ? "文件" : entry.kind;
     return {
       ...entry,
@@ -507,7 +510,10 @@
         : `image-file:${JSON.stringify(snapshot.files || [])}`;
     }
     if (snapshot.kind === "files") return `files:${JSON.stringify(snapshot.files || [])}`;
-    return `text:${snapshot.text || ""}`;
+    // Sensitive native events intentionally omit plaintext before crossing
+    // into the WebView. The stable native id keeps event and polling paths
+    // deduplicated without exposing the secret.
+    return `text:${snapshot.entry_id || snapshot.text || ""}`;
   }
 
   function formatTime(date) {
@@ -1114,13 +1120,15 @@
       kind,
       category: kind === "图片" ? "image" : "file",
       time: new Date().toISOString(),
-      source_app: state.notificationSettings.showSourceApp ? (snapshot.source_app || snapshot.sourceApp || "未知应用") : "未知应用",
+      // Keep the source in local history even when its visual display is
+      // disabled. The setting controls presentation, not data collection.
+      source_app: snapshot.source_app || snapshot.sourceApp || "未知应用",
       pinned: false,
       image_id: snapshot.image_id || null,
       image_width: snapshot.image_width || null,
       image_height: snapshot.image_height || null,
       files: snapshot.files || null,
-    } : { ...makeEntry(text, new Date().toISOString(), snapshot.entry_id, snapshot.sensitivity), source_app: state.notificationSettings.showSourceApp ? (snapshot.source_app || snapshot.sourceApp || "未知应用") : "未知应用" };
+    } : { ...makeEntry(text, new Date().toISOString(), snapshot.entry_id, snapshot.sensitivity), source_app: snapshot.source_app || snapshot.sourceApp || "未知应用" };
     if (kind) entry.id = snapshot.entry_id || entry.id;
     const isProtected = entry.category === "password";
     if (isProtected && (!automatic || !snapshot.persisted)) {

@@ -327,9 +327,6 @@ impl ClipboardHandler for ClipboardMonitor {
                 {
                     return CallbackResult::Next;
                 }
-                if !settings.show_source_app {
-                    snapshot.source_app = default_source_app();
-                }
                 if snapshot.kind != "other" && snapshot.kind != "empty" {
                     match persist_captured_snapshot(&self.app, &snapshot, &self.history_lock) {
                         Ok(()) => snapshot.persisted = true,
@@ -762,6 +759,27 @@ fn is_sensitive_text(text: &str) -> bool {
         "private_key:",
         "private-key=",
         "private-key:",
+        "password：",
+        "passwd：",
+        "api_key：",
+        "api-key：",
+        "access_token：",
+        "access-token：",
+        "client_secret：",
+        "client-secret：",
+        "private_key：",
+        "private-key：",
+        "密码:",
+        "密码=",
+        "密码：",
+        "口令:",
+        "口令=",
+        "口令：",
+        "密钥:",
+        "密钥=",
+        "密钥：",
+        "银行卡号:",
+        "身份证号:",
     ];
 
     key_markers.iter().any(|marker| lower.contains(marker))
@@ -772,6 +790,58 @@ fn is_sensitive_text(text: &str) -> bool {
             .any(|prefix| lower.contains(prefix))
         || is_valid_payment_card_number(text)
         || is_valid_chinese_identity_number(text)
+}
+
+fn classify_text(text: &str, sensitivity: &str) -> &'static str {
+    if sensitivity == "sensitive" || is_sensitive_text(text) {
+        return "password";
+    }
+
+    let value = trim_clipboard_noise(text);
+    let lower = value.to_ascii_lowercase();
+    if (lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("ftp://")
+        || lower.starts_with("www."))
+        && !value.chars().any(char::is_whitespace)
+    {
+        return "url";
+    }
+
+    if lower.starts_with("username=")
+        || lower.starts_with("username:")
+        || lower.starts_with("user=")
+        || lower.starts_with("user:")
+        || lower.starts_with("account=")
+        || lower.starts_with("account:")
+        || value.starts_with("账号=")
+        || value.starts_with("账号:")
+        || value.starts_with("账号：")
+        || value.starts_with("用户名=")
+        || value.starts_with("用户名:")
+        || value.starts_with("用户名：")
+        || is_email_like(value)
+    {
+        return "account";
+    }
+
+    "text"
+}
+
+fn is_email_like(value: &str) -> bool {
+    let mut parts = value.split('@');
+    let Some(local) = parts.next() else {
+        return false;
+    };
+    let Some(domain) = parts.next() else {
+        return false;
+    };
+    parts.next().is_none()
+        && !local.is_empty()
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && !value.chars().any(char::is_whitespace)
 }
 
 fn is_valid_payment_card_number(text: &str) -> bool {
@@ -1152,20 +1222,13 @@ fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
         }
         _ => {
             let text = snapshot.text.clone().unwrap_or_default();
-            (
-                text.clone(),
-                if snapshot.sensitivity == "sensitive" {
-                    "敏感信息".to_string()
-                } else {
-                    notification_title(&text)
-                },
-                "文本".to_string(),
-                if snapshot.sensitivity == "sensitive" {
-                    "password".to_string()
-                } else {
-                    "text".to_string()
-                },
-            )
+            let category = classify_text(&text, snapshot.sensitivity);
+            let title = match category {
+                "password" => "敏感信息".to_string(),
+                "account" => "账号信息".to_string(),
+                _ => notification_title(&text),
+            };
+            (text, title, "文本".to_string(), category.to_string())
         }
     };
 
@@ -2637,12 +2700,12 @@ mod tests {
 
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
-        build_toast_payload, content_entry_id, decode_image_buffers, file_name,
+        build_toast_payload, classify_text, content_entry_id, decode_image_buffers, file_name,
         has_meaningful_clipboard_text, history_entry_from_snapshot, history_entry_matches_snapshot,
-        is_existing_secure_item_error, is_image_format, is_image_path, is_sensitive_text,
-        normalize_cleanup_schedule, normalize_history, normalize_notification_settings,
-        normalize_position, notification_title, prune_old_entries, sensitive_secret_ref,
-        unavailable_image_snapshot, valid_image_id,
+        is_email_like, is_existing_secure_item_error, is_image_format, is_image_path,
+        is_sensitive_text, normalize_cleanup_schedule, normalize_history,
+        normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
+        sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -2711,8 +2774,20 @@ mod tests {
         assert!(is_sensitive_text("password=correct horse battery staple"));
         assert!(is_sensitive_text("Authorization: Bearer abc123"));
         assert!(is_sensitive_text("ghp_exampletoken"));
+        assert!(is_sensitive_text("密码：正确马电池订书钉"));
         assert!(!is_sensitive_text("https://example.com/docs?tab=api"));
         assert!(!is_sensitive_text("这是普通的剪贴板内容"));
+    }
+
+    #[test]
+    fn classifies_urls_accounts_and_regular_text_consistently() {
+        assert_eq!(classify_text(" https://example.com/docs ", "normal"), "url");
+        assert_eq!(classify_text("name@example.com", "normal"), "account");
+        assert_eq!(classify_text("账号：demo-user", "normal"), "account");
+        assert_eq!(classify_text("https://example.com/a b", "normal"), "text");
+        assert_eq!(classify_text("password=secret", "normal"), "password");
+        assert!(is_email_like("name@example.com"));
+        assert!(!is_email_like("name@example"));
     }
 
     #[test]
@@ -2847,6 +2922,31 @@ mod tests {
             Some("entry:text-sensitive-test")
         );
         assert_eq!(entry.title, "敏感信息");
+    }
+
+    #[test]
+    fn history_entry_keeps_native_url_and_account_categories() {
+        let mut url = ClipboardSnapshot {
+            kind: "text",
+            sensitivity: "normal",
+            text: Some("https://example.com/docs".to_string()),
+            preview: "https://example.com/docs".to_string(),
+            length: 24,
+            entry_id: "url-test".to_string(),
+            source_app: "测试应用".to_string(),
+            persisted: false,
+            image_id: None,
+            image_width: None,
+            image_height: None,
+            files: None,
+            toast: None,
+        };
+        assert_eq!(history_entry_from_snapshot(&url).category, "url");
+
+        url.text = Some("name@example.com".to_string());
+        url.entry_id = "account-test".to_string();
+        assert_eq!(history_entry_from_snapshot(&url).category, "account");
+        assert_eq!(history_entry_from_snapshot(&url).title, "账号信息");
     }
 
     #[test]
