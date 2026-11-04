@@ -480,7 +480,9 @@
   }
 
   function normalizeEntry(entry) {
-    const mediaCategory = entry.image_id ? "image" : Array.isArray(entry.files) ? "file" : null;
+    const mediaCategory = entry.kind === "图片" || entry.category === "image" || entry.image_id
+      ? "image"
+      : Array.isArray(entry.files) ? "file" : null;
     const detectedCategory = classifyText(entry.text || "");
     const category = mediaCategory || (entry.category === "password" ? "password" : detectedCategory);
     const kind = mediaCategory === "image" ? "图片" : mediaCategory === "file" ? "文件" : entry.kind;
@@ -499,7 +501,11 @@
   }
 
   function snapshotSignature(snapshot) {
-    if (snapshot.kind === "image") return `image:${snapshot.image_id}`;
+    if (snapshot.kind === "image") {
+      return snapshot.image_id
+        ? `image:${snapshot.image_id}`
+        : `image-file:${JSON.stringify(snapshot.files || [])}`;
+    }
     if (snapshot.kind === "files") return `files:${JSON.stringify(snapshot.files || [])}`;
     return `text:${snapshot.text || ""}`;
   }
@@ -672,7 +678,7 @@
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${state.selectionMode ? " is-selection-mode" : ""}`;
       const icon = entry.kind === "图片" ? "▧" : entry.kind === "文件" ? "↗" : entry.kind === "JSON" ? "{}" : entry.category === "password" ? "•" : entry.category === "url" ? "↗" : entry.category === "account" ? "@" : "T";
       const summary = protectedEntry ? maskedProtectedText() : entry.kind === "图片"
-        ? `${entry.image_width || 0} × ${entry.image_height || 0}`
+        ? entry.image_id ? `${entry.image_width || 0} × ${entry.image_height || 0}` : "无法预览"
         : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${(entry.text || "").length} 字符`;
       const tags = (entry.tags || []).map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("");
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${protectedEntry ? " is-protected" : ""}`;
@@ -945,7 +951,9 @@
     state.currentText = entry.category === "password" ? "" : (entry.text || "");
     elements.detailHeading.textContent = entry.title;
     elements.contentKind.textContent = categoryLabel(entry.category);
-    elements.contentLength.textContent = entry.kind === "图片" ? `${entry.image_width} × ${entry.image_height}` : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${entry.length || 0} 字符`;
+    elements.contentLength.textContent = entry.kind === "图片"
+      ? entry.image_id ? `${entry.image_width || 0} × ${entry.image_height || 0}` : "无法预览"
+      : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${entry.length || 0} 字符`;
     elements.contentTime.textContent = state.notificationSettings.showSourceApp
       ? `来自：${entry.source_app || "未知应用"} · ${formatTime(entry.time)}`
       : formatTime(entry.time);
@@ -964,6 +972,12 @@
       invoke("load_history_image", { imageId: entry.image_id }).then((url) => { image.src = url; }).catch((error) => {
         elements.preview.textContent = `图片无法读取：${error}`;
       });
+    } else if (entry.kind === "图片") {
+      if (entry.files?.length) {
+        renderFilePreviews(entry.files, id);
+      } else {
+        elements.preview.textContent = "图片无法预览：本地图片数据不可用。";
+      }
     } else if (entry.kind === "文件") {
       renderFilePreviews(entry.files || [], id);
     } else if (protectedEntry) {
@@ -1091,7 +1105,11 @@
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       text,
       length: snapshot.length || text.length,
-      title: kind === "图片" ? `剪贴板图片 ${snapshot.image_width} × ${snapshot.image_height}` : (snapshot.files || []).map(fileNameForDisplay).join("、"),
+      title: kind === "图片"
+        ? snapshot.image_id
+          ? `剪贴板图片 ${snapshot.image_width || 0} × ${snapshot.image_height || 0}`
+          : `图片：${(snapshot.files || []).map(fileNameForDisplay).join("、") || "无法预览"}（无法预览）`
+        : (snapshot.files || []).map(fileNameForDisplay).join("、"),
       kind,
       category: kind === "图片" ? "image" : "file",
       time: new Date().toISOString(),
@@ -1133,7 +1151,9 @@
     const sameContent = (item) => entry.category === "password"
       ? item.category === "password" && item.id === entry.id
       : kind === "图片"
-      ? item.image_id === entry.image_id
+      ? (item.image_id && entry.image_id
+        ? item.image_id === entry.image_id
+        : item.kind === "图片" && JSON.stringify(item.files || []) === JSON.stringify(entry.files || []))
       : kind === "文件" ? JSON.stringify(item.files || []) === JSON.stringify(entry.files || [])
         : !item.image_id && !item.files && item.text === text;
     const existing = state.entries.find(sameContent);
@@ -1172,9 +1192,15 @@
     if (!entry) throw new Error("请先选择一条记录。");
 
     if (entry.kind === "图片") {
-      if (!entry.image_id) throw new Error("这条图片记录缺少本地图片数据。");
-      await invoke("write_history_image_clipboard", { imageId: entry.image_id });
-      setMessage(`已复制一张图片：${entry.image_width || 0} × ${entry.image_height || 0}`);
+      if (entry.image_id) {
+        await invoke("write_history_image_clipboard", { imageId: entry.image_id });
+        setMessage(`已复制一张图片：${entry.image_width || 0} × ${entry.image_height || 0}`);
+      } else if (entry.files?.length) {
+        await invoke("write_files_clipboard", { files: entry.files });
+        setMessage(`已复制一张图片：${entry.files.map(fileNameForDisplay).join("、")}`);
+      } else {
+        throw new Error("这条图片记录缺少本地图片数据。");
+      }
       return;
     }
 

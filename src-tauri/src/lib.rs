@@ -429,6 +429,38 @@ fn file_names(paths: &[String]) -> String {
         .join("、")
 }
 
+fn is_image_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "avif" | "bmp" | "gif" | "heic" | "jpeg" | "jpg" | "png" | "tif" | "tiff" | "webp"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn unavailable_image_snapshot(path: &Path) -> ClipboardSnapshot {
+    let path_string = path.to_string_lossy().into_owned();
+    let name = file_name(&path_string);
+    ClipboardSnapshot {
+        kind: "image",
+        sensitivity: "normal",
+        text: None,
+        preview: format!("图片：{name}（无法预览）"),
+        length: 0,
+        entry_id: content_entry_id("image-file", path_string.as_bytes()),
+        source_app: default_source_app(),
+        persisted: false,
+        image_id: None,
+        image_width: None,
+        image_height: None,
+        files: Some(vec![path_string]),
+        toast: None,
+    }
+}
+
 fn capture_suspended(capture_state: &Arc<RwLock<CaptureState>>) -> bool {
     capture_state
         .read()
@@ -973,11 +1005,12 @@ fn build_toast_payload(
         message: if sensitive {
             "已复制敏感信息：******（点击查看记录）".to_string()
         } else if snapshot.kind == "image" {
-            format!(
-                "已复制一张图片：{} × {}",
-                snapshot.image_width.unwrap_or(0),
-                snapshot.image_height.unwrap_or(0)
-            )
+            if let (Some(width), Some(height)) = (snapshot.image_width, snapshot.image_height) {
+                format!("已复制一张图片：{width} × {height}")
+            } else {
+                let name = file_names(snapshot.files.as_deref().unwrap_or_default());
+                format!("已复制一张图片：{name}（无法预览）")
+            }
         } else if snapshot.kind == "files" {
             let files = snapshot.files.as_deref().unwrap_or_default();
             let count = files.len();
@@ -1061,16 +1094,22 @@ fn prune_old_entries(
 
 fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
     let (text, title, kind, category) = match snapshot.kind {
-        "image" => (
-            String::new(),
-            format!(
-                "剪贴板图片 {} × {}",
-                snapshot.image_width.unwrap_or(0),
-                snapshot.image_height.unwrap_or(0)
-            ),
-            "图片".to_string(),
-            "image".to_string(),
-        ),
+        "image" => {
+            let title = if let (Some(width), Some(height)) =
+                (snapshot.image_width, snapshot.image_height)
+            {
+                format!("剪贴板图片 {width} × {height}")
+            } else {
+                let name = file_names(snapshot.files.as_deref().unwrap_or_default());
+                format!("图片：{name}（无法预览）")
+            };
+            (
+                String::new(),
+                title,
+                "图片".to_string(),
+                "image".to_string(),
+            )
+        }
         "files" => {
             let files = snapshot.files.as_deref().unwrap_or_default();
             (
@@ -1121,7 +1160,10 @@ fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
 
 fn history_entry_matches_snapshot(entry: &HistoryEntry, snapshot: &ClipboardSnapshot) -> bool {
     match snapshot.kind {
-        "image" => entry.image_id == snapshot.image_id,
+        "image" => match snapshot.image_id.as_deref() {
+            Some(image_id) => entry.image_id.as_deref() == Some(image_id),
+            None => entry.kind == "图片" && entry.files == snapshot.files,
+        },
         "files" => entry.files == snapshot.files,
         _ => {
             entry.image_id.is_none()
@@ -1473,31 +1515,13 @@ fn migrate_image_file_entry(app: &AppHandle, entry: HistoryEntry) -> HistoryEntr
     let Some(snapshot) = image_file_to_snapshot(app, Path::new(&files[0])) else {
         return entry;
     };
-    let Some(image_id) = snapshot.image_id else {
-        return entry;
-    };
 
-    HistoryEntry {
-        id: snapshot.entry_id,
-        text: String::new(),
-        length: 0,
-        title: format!(
-            "剪贴板图片 {} × {}",
-            snapshot.image_width.unwrap_or(0),
-            snapshot.image_height.unwrap_or(0)
-        ),
-        kind: "图片".to_string(),
-        time: entry.time,
-        category: "image".to_string(),
-        pinned: entry.pinned,
-        tags: entry.tags,
-        source_app: entry.source_app,
-        image_id: Some(image_id),
-        image_width: snapshot.image_width,
-        image_height: snapshot.image_height,
-        files: None,
-        secret_ref: None,
-    }
+    let mut migrated = history_entry_from_snapshot(&snapshot);
+    migrated.time = entry.time;
+    migrated.pinned = entry.pinned;
+    migrated.tags = entry.tags;
+    migrated.source_app = entry.source_app;
+    migrated
 }
 
 fn is_image_format(format: &str) -> bool {
@@ -1565,24 +1589,41 @@ fn arboard_image_to_snapshot(
 }
 
 fn image_file_to_snapshot(app: &AppHandle, path: &Path) -> Option<ClipboardSnapshot> {
+    if !is_image_path(path) {
+        return None;
+    }
     if !path.is_file() {
-        return None;
+        return Some(unavailable_image_snapshot(path));
     }
 
-    let size = fs::metadata(path).ok()?.len();
+    let size = match fs::metadata(path) {
+        Ok(metadata) => metadata.len(),
+        Err(_) => return Some(unavailable_image_snapshot(path)),
+    };
     if size > MAX_FILE_PREVIEW_BYTES {
-        return None;
+        return Some(unavailable_image_snapshot(path));
     }
 
-    // Decode from bytes rather than the extension. Some chat clients save a
-    // GIF/WebP payload with a `.jpg` name when exposing an image file path.
-    let bytes = fs::read(path).ok()?;
-    let image = image::load_from_memory(&bytes).ok()?;
+    // Decode from bytes after identifying image paths. Some chat clients save
+    // a GIF/WebP payload with a `.jpg` name when exposing an image file path.
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(_) => return Some(unavailable_image_snapshot(path)),
+    };
+    let image = match image::load_from_memory(&bytes) {
+        Ok(image) => image,
+        Err(_) => return Some(unavailable_image_snapshot(path)),
+    };
     let width = image.width();
     let height = image.height();
     let mut png = std::io::Cursor::new(Vec::new());
-    image.write_to(&mut png, image::ImageFormat::Png).ok()?;
-    save_png_image_snapshot(app, png.into_inner(), width, height).ok()
+    if image.write_to(&mut png, image::ImageFormat::Png).is_err() {
+        return Some(unavailable_image_snapshot(path));
+    }
+    match save_png_image_snapshot(app, png.into_inner(), width, height) {
+        Ok(snapshot) => Some(snapshot),
+        Err(_) => Some(unavailable_image_snapshot(path)),
+    }
 }
 
 #[tauri::command]
@@ -2592,15 +2633,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone, Utc};
+    use std::path::Path;
     use std::sync::{Arc, RwLock};
 
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
         build_toast_payload, content_entry_id, decode_image_buffers, file_name,
-        history_entry_from_snapshot, is_image_format, is_sensitive_text,
-        normalize_cleanup_schedule, normalize_history, normalize_notification_settings,
-        normalize_position, notification_title, prune_old_entries, sensitive_secret_ref,
-        valid_image_id,
+        history_entry_from_snapshot, history_entry_matches_snapshot, is_image_format,
+        is_image_path, is_sensitive_text, normalize_cleanup_schedule, normalize_history,
+        normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
+        sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3035,6 +3077,32 @@ mod tests {
         assert_eq!(history_entry.kind, "文件");
         assert_eq!(history_entry.source_app, "测试应用");
         assert_eq!(history_entry.files, files.files);
+    }
+
+    #[test]
+    fn keeps_unavailable_image_files_as_image_records() {
+        let path = "/Users/demo/Downloads/emoji.jpg";
+        let snapshot = unavailable_image_snapshot(Path::new(path));
+        let entry = history_entry_from_snapshot(&snapshot);
+
+        assert_eq!(entry.kind, "图片");
+        assert_eq!(entry.category, "image");
+        assert!(entry.title.contains("emoji.jpg"));
+        assert!(entry.title.contains("无法预览"));
+        assert_eq!(entry.files, Some(vec![path.to_string()]));
+        assert!(history_entry_matches_snapshot(&entry, &snapshot));
+
+        let settings = Arc::new(RwLock::new(NotificationSettings::default()));
+        let capture_state = Arc::new(RwLock::new(CaptureState::default()));
+        let toast = build_toast_payload(&snapshot, &settings, &capture_state).expect("image toast");
+        assert_eq!(toast.message, "已复制一张图片：emoji.jpg（无法预览）");
+    }
+
+    #[test]
+    fn recognizes_image_file_extensions_case_insensitively() {
+        assert!(is_image_path(Path::new("/tmp/photo.JPEG")));
+        assert!(is_image_path(Path::new(r"C:\\tmp\\photo.webp")));
+        assert!(!is_image_path(Path::new("/tmp/archive.zip")));
     }
 
     #[test]
