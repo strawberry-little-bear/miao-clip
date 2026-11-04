@@ -219,6 +219,7 @@ impl Default for NotificationSettings {
     }
 }
 
+#[derive(Clone)]
 struct RuntimeState {
     notification_settings: Arc<RwLock<NotificationSettings>>,
     capture_state: Arc<RwLock<CaptureState>>,
@@ -235,7 +236,7 @@ struct TrayControls {
     privacy: CheckMenuItem<Wry>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 struct CaptureState {
     paused: bool,
     privacy_mode: bool,
@@ -272,15 +273,6 @@ struct PlatformDiagnostics {
     autostart: CapabilityStatus,
     image_capture: CapabilityStatus,
     file_capture: CapabilityStatus,
-}
-
-impl Default for CaptureState {
-    fn default() -> Self {
-        Self {
-            paused: false,
-            privacy_mode: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -430,7 +422,7 @@ fn has_meaningful_clipboard_text(text: &str) -> bool {
 }
 
 fn file_name(path: &str) -> String {
-    path.rsplit(|character| character == '/' || character == '\\')
+    path.rsplit(['/', '\\'])
         .find(|name| !name.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| path.to_string())
@@ -650,10 +642,9 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 button_state: MouseButtonState::Up,
                 ..
             } = event
+                && let Err(error) = show_main_window(tray.app_handle())
             {
-                if let Err(error) = show_main_window(tray.app_handle()) {
-                    log::warn!("无法打开妙夹主窗口：{error}");
-                }
+                log::warn!("无法打开妙夹主窗口：{error}");
             }
         })
         .build(app)?;
@@ -875,10 +866,10 @@ fn store_sensitive_secret(secret_ref: &str, text: &str) -> Result<(), String> {
 
     // Reusing an existing item avoids an unnecessary Keychain write during
     // history migration and makes repeated saves harmless.
-    if let Ok(existing) = entry.get_password() {
-        if existing == text {
-            return Ok(());
-        }
+    if let Ok(existing) = entry.get_password()
+        && existing == text
+    {
+        return Ok(());
     }
 
     match entry.set_password(text) {
@@ -1387,13 +1378,12 @@ fn import_history_from_path(
             skipped_count += 1;
             continue;
         }
-        if let Some(image_id) = entry.image_id.as_deref() {
-            if !valid_image_id(image_id)
-                || (!imported_images.contains(image_id) && !existing_images.contains(image_id))
-            {
-                skipped_count += 1;
-                continue;
-            }
+        if let Some(image_id) = entry.image_id.as_deref()
+            && (!valid_image_id(image_id)
+                || (!imported_images.contains(image_id) && !existing_images.contains(image_id)))
+        {
+            skipped_count += 1;
+            continue;
         }
         // The export format deliberately never carries sensitive references or
         // plaintext. Keep the record as masked metadata on this device.
@@ -1696,39 +1686,40 @@ fn read_clipboard_snapshot(
             return Ok(snapshot);
         }
 
-        if let Ok(files) = clipboard.get_files() {
-            if !files.is_empty() {
-                if settings.capture_images && files.len() == 1 {
-                    if let Some(snapshot) = image_file_to_snapshot(app, Path::new(&files[0])) {
-                        let mut snapshot = snapshot;
-                        snapshot.source_app = source_app_name();
-                        return Ok(snapshot);
-                    }
-                }
-                if !settings.capture_files {
-                    return Ok(ignored_capture_snapshot("文件捕获已关闭"));
-                }
-
-                let first_name = PathBuf::from(&files[0])
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| files[0].clone());
-                return Ok(ClipboardSnapshot {
-                    kind: "files",
-                    sensitivity: "normal",
-                    text: Some(files.join("\n")),
-                    preview: format!("{first_name} 等 {} 个", files.len()),
-                    length: files.len(),
-                    entry_id: content_entry_id("files", files.join("\0").as_bytes()),
-                    source_app: source_app_name(),
-                    persisted: false,
-                    image_id: None,
-                    image_width: None,
-                    image_height: None,
-                    files: Some(files),
-                    toast: None,
-                });
+        if let Ok(files) = clipboard.get_files()
+            && !files.is_empty()
+        {
+            if settings.capture_images
+                && files.len() == 1
+                && let Some(snapshot) = image_file_to_snapshot(app, Path::new(&files[0]))
+            {
+                let mut snapshot = snapshot;
+                snapshot.source_app = source_app_name();
+                return Ok(snapshot);
             }
+            if !settings.capture_files {
+                return Ok(ignored_capture_snapshot("文件捕获已关闭"));
+            }
+
+            let first_name = PathBuf::from(&files[0])
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| files[0].clone());
+            return Ok(ClipboardSnapshot {
+                kind: "files",
+                sensitivity: "normal",
+                text: Some(files.join("\n")),
+                preview: format!("{first_name} 等 {} 个", files.len()),
+                length: files.len(),
+                entry_id: content_entry_id("files", files.join("\0").as_bytes()),
+                source_app: source_app_name(),
+                persisted: false,
+                image_id: None,
+                image_width: None,
+                image_height: None,
+                files: Some(files),
+                toast: None,
+            });
         }
     }
 
@@ -1887,16 +1878,16 @@ fn write_text_to_clipboard(
     entry_id: String,
     text: String,
 ) -> Result<(), String> {
-    mark_suppressed_entry(&state, entry_id.clone())?;
+    mark_suppressed_entry(state, entry_id.clone())?;
     let mut clipboard = match Clipboard::new() {
         Ok(clipboard) => clipboard,
         Err(error) => {
-            remove_suppressed_entry(&state, &entry_id);
+            remove_suppressed_entry(state, &entry_id);
             return Err(error.to_string());
         }
     };
     if let Err(error) = clipboard.set_text(text) {
-        remove_suppressed_entry(&state, &entry_id);
+        remove_suppressed_entry(state, &entry_id);
         return Err(error.to_string());
     }
     Ok(())
@@ -2171,16 +2162,7 @@ fn restart_clipboard_monitor(app: AppHandle, state: State<'_, RuntimeState>) -> 
         shutdown.signal();
     }
 
-    spawn_clipboard_monitor(
-        app,
-        state.notification_settings.clone(),
-        state.capture_state.clone(),
-        state.monitor_status.clone(),
-        state.monitor_shutdown.clone(),
-        state.monitor_generation.clone(),
-        state.history_lock.clone(),
-        state.suppressed_entries.clone(),
-    );
+    spawn_clipboard_monitor(app, state.inner().clone());
     Ok(())
 }
 
@@ -2383,44 +2365,35 @@ fn prune_images(app: &AppHandle, entries: &[HistoryEntry]) -> Result<(), String>
     Ok(())
 }
 
-fn spawn_clipboard_monitor(
-    app: AppHandle,
-    notification_settings: Arc<RwLock<NotificationSettings>>,
-    capture_state: Arc<RwLock<CaptureState>>,
-    monitor_status: Arc<RwLock<MonitorStatus>>,
-    monitor_shutdown: Arc<Mutex<Option<(u64, Shutdown)>>>,
-    monitor_generation: Arc<AtomicU64>,
-    history_lock: Arc<Mutex<()>>,
-    suppressed_entries: Arc<RwLock<HashMap<String, Instant>>>,
-) {
-    let generation = monitor_generation.fetch_add(1, Ordering::SeqCst) + 1;
+fn spawn_clipboard_monitor(app: AppHandle, state: RuntimeState) {
+    let generation = state.monitor_generation.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::Builder::new()
         .name("clipboard-monitor".to_string())
         .spawn(move || {
-            if monitor_generation.load(Ordering::SeqCst) != generation {
+            if state.monitor_generation.load(Ordering::SeqCst) != generation {
                 return;
             }
 
             update_monitor_status(
                 &app,
-                &monitor_status,
+                &state.monitor_status,
                 "starting",
                 "正在初始化系统剪贴板监听。",
             );
             let mut monitor = match Master::new(ClipboardMonitor {
                 app: app.clone(),
-                notification_settings,
-                capture_state,
-                monitor_status: monitor_status.clone(),
-                history_lock,
-                suppressed_entries,
+                notification_settings: state.notification_settings.clone(),
+                capture_state: state.capture_state.clone(),
+                monitor_status: state.monitor_status.clone(),
+                history_lock: state.history_lock.clone(),
+                suppressed_entries: state.suppressed_entries.clone(),
             }) {
                 Ok(monitor) => monitor,
                 Err(error) => {
-                    if monitor_generation.load(Ordering::SeqCst) == generation {
+                    if state.monitor_generation.load(Ordering::SeqCst) == generation {
                         update_monitor_status(
                             &app,
-                            &monitor_status,
+                            &state.monitor_status,
                             "error",
                             format!("无法初始化剪贴板监听：{error}"),
                         );
@@ -2431,37 +2404,36 @@ fn spawn_clipboard_monitor(
             };
 
             let shutdown = monitor.shutdown_channel();
-            if monitor_generation.load(Ordering::SeqCst) != generation {
+            if state.monitor_generation.load(Ordering::SeqCst) != generation {
                 shutdown.signal();
                 return;
             }
-            if let Ok(mut current) = monitor_shutdown.lock() {
+            if let Ok(mut current) = state.monitor_shutdown.lock() {
                 *current = Some((generation, shutdown));
             }
-            update_monitor_status(&app, &monitor_status, "running", "剪贴板监听已启动。");
+            update_monitor_status(&app, &state.monitor_status, "running", "剪贴板监听已启动。");
 
             let result = monitor.run();
-            if let Ok(mut current) = monitor_shutdown.lock() {
-                if current
+            if let Ok(mut current) = state.monitor_shutdown.lock()
+                && current
                     .as_ref()
                     .is_some_and(|(current_generation, _)| *current_generation == generation)
-                {
-                    current.take();
-                }
+            {
+                current.take();
             }
-            if monitor_generation.load(Ordering::SeqCst) != generation {
+            if state.monitor_generation.load(Ordering::SeqCst) != generation {
                 return;
             }
             match result {
                 Ok(()) => update_monitor_status(
                     &app,
-                    &monitor_status,
+                    &state.monitor_status,
                     "stopped",
                     "剪贴板监听已停止，可重新启动监听。",
                 ),
                 Err(error) => update_monitor_status(
                     &app,
-                    &monitor_status,
+                    &state.monitor_status,
                     "error",
                     format!("剪贴板监听已停止：{error}"),
                 ),
@@ -2486,7 +2458,7 @@ pub fn run() {
                 app.handle().plugin(GlobalShortcutBuilder::new().build())?;
             }
 
-            let notification_settings = match load_notification_settings(&app.handle()) {
+            let notification_settings = match load_notification_settings(app.handle()) {
                 Ok(settings) => settings,
                 Err(error) => {
                     log::warn!("{error} 将使用默认通知设置。",);
@@ -2494,11 +2466,8 @@ pub fn run() {
                 }
             };
             #[cfg(desktop)]
-            configure_quick_paste_shortcut(
-                &app.handle(),
-                notification_settings.quick_paste_enabled,
-            )
-            .map_err(std::io::Error::other)?;
+            configure_quick_paste_shortcut(app.handle(), notification_settings.quick_paste_enabled)
+                .map_err(std::io::Error::other)?;
             let notification_settings = Arc::new(RwLock::new(notification_settings));
             let capture_state = Arc::new(RwLock::new(CaptureState::default()));
             let monitor_status = Arc::new(RwLock::new(MonitorStatus::default()));
@@ -2506,7 +2475,7 @@ pub fn run() {
             let monitor_generation = Arc::new(AtomicU64::new(0));
             let history_lock = Arc::new(Mutex::new(()));
             let suppressed_entries = Arc::new(RwLock::new(HashMap::new()));
-            app.manage(RuntimeState {
+            let runtime_state = RuntimeState {
                 notification_settings: notification_settings.clone(),
                 capture_state: capture_state.clone(),
                 monitor_status: monitor_status.clone(),
@@ -2514,7 +2483,8 @@ pub fn run() {
                 monitor_generation: monitor_generation.clone(),
                 history_lock: history_lock.clone(),
                 suppressed_entries: suppressed_entries.clone(),
-            });
+            };
+            app.manage(runtime_state.clone());
 
             let cleanup_app = app.handle().clone();
             let cleanup_settings = notification_settings.clone();
@@ -2586,16 +2556,7 @@ pub fn run() {
             #[cfg(desktop)]
             build_tray(app)?;
 
-            spawn_clipboard_monitor(
-                app.handle().clone(),
-                notification_settings,
-                capture_state,
-                monitor_status,
-                monitor_shutdown,
-                monitor_generation,
-                history_lock,
-                suppressed_entries,
-            );
+            spawn_clipboard_monitor(app.handle().clone(), runtime_state);
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -2608,12 +2569,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             #[cfg(desktop)]
-            if window.label() == "main" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    if let Err(error) = window.hide() {
-                        log::warn!("无法隐藏妙夹主窗口：{error}");
-                    }
+            if window.label() == "main"
+                && let WindowEvent::CloseRequested { api, .. } = event
+            {
+                api.prevent_close();
+                if let Err(error) = window.hide() {
+                    log::warn!("无法隐藏妙夹主窗口：{error}");
                 }
             }
         })
