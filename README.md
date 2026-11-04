@@ -35,9 +35,10 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：通过**：[2026-11-04 主分支构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41843743328) 的 6 个 job 全部成功，包含 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，以及 Apple Silicon、Intel Mac 和 Windows 安装包构建。该次运行没有失败步骤或实际构建错误；检查到的 annotation 只有 macOS runner 容量提示，没有 `Node.js 20` 弃用提示。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 验证。
+- **CI：通过**：[Build MiaoClip #51](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41859270973) 已完成，6 个 job 全部成功，包含 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，以及 Apple Silicon、Intel Mac 和 Windows 安装包构建。该次运行没有失败步骤或实际构建错误；唯一 annotation 是 macOS arm64 runner 的容量提示，没有 `Node.js 20` 弃用提示。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 验证。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
-- **macOS：有限本机冒烟测试**：已确认普通文本自动捕获；来源应用、图片 / 文件、敏感信息、通知交互、隐私模式、开机启动和其他设备验收仍需逐项验证。
+- **macOS Apple Silicon：本机部分验收通过**：已确认普通文本、中文、Emoji、完整日期时间、来源应用、暂停监听、隐私模式、历史持久化和监听恢复；通知视觉内容与点击回跳仍需在解锁桌面后补做，图片 / 文件、敏感信息、开机启动仍需逐项验收。
+- **macOS Intel：构建已验证，设备验收待完成**：需要在 Intel Mac 上补做完整剪贴板、通知和开机启动验收。
 - **Windows / Linux：构建已验证，设备验收待完成**：通知、开机启动、WebView2 或桌面环境差异需要在对应真实设备上检查。
 
 ## 30 秒上手
@@ -292,7 +293,8 @@ notifications.json  通知开关、位置和持续时间
 
 | 平台 | 当前状态 | 说明 |
 | --- | --- | --- |
-| macOS | Apple Silicon 本机普通文本捕获已做冒烟测试；跨架构设备验收待完成 | Actions 提供 Apple Silicon 与 Intel 测试安装包；图片 / 文件、通知交互、来源应用和开机启动仍需逐项实测 |
+| macOS Apple Silicon | 本机部分验收通过 | 已验证文本、中文、Emoji、完整时间、来源应用、暂停监听、隐私模式、持久化和监听恢复；通知点击、图片 / 文件、敏感内容和开机启动仍需补测 |
+| macOS Intel | 构建已验证；真实设备验收待完成 | Actions 提供 Intel 安装包，需要补测剪贴板类型、通知交互和开机启动 |
 | Windows | GitHub Actions 检查与安装包构建已通过；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
 | Linux | GitHub Actions 检查通过；v0.1.0 x64 安装包构建已通过；真实设备验收待完成 | Release 提供 `.deb` 和 `.AppImage`；来源应用识别依赖桌面环境，优先使用 `xdotool`，不同桌面环境仍需实测 |
 
