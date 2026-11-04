@@ -479,6 +479,30 @@
     return "******";
   }
 
+  function captureMessage(snapshot, entry) {
+    const sensitive = snapshot.sensitivity === "sensitive" || entry.category === "password";
+    let message;
+    if (sensitive) {
+      message = "已复制敏感信息：******（点击查看记录）";
+    } else if (snapshot.kind === "image") {
+      const dimensions = snapshot.image_width && snapshot.image_height
+        ? `：${snapshot.image_width} × ${snapshot.image_height}`
+        : "";
+      const name = (snapshot.files || []).map(fileNameForDisplay).join("、");
+      message = `已复制一张图片${dimensions || (name ? `：${name}` : "")}`;
+    } else if (snapshot.kind === "files") {
+      const names = (snapshot.files || []).map(fileNameForDisplay).join("、");
+      const count = (snapshot.files || []).length;
+      message = count === 1 ? `已复制文件：${names}` : `已复制 ${count} 个文件：${names}`;
+    } else {
+      message = `已复制：${entry.title || "新剪贴板内容"}`;
+    }
+    if (state.notificationSettings.showSourceApp && entry.source_app && entry.source_app !== "未知应用") {
+      message += ` · 来自：${entry.source_app}`;
+    }
+    return message;
+  }
+
   function normalizeEntry(entry) {
     // Older history can contain a single image path recorded as a generic
     // file. Recover the user-facing image type even when the original bytes
@@ -545,7 +569,7 @@
   }
 
   function isImagePath(path) {
-    return /\.(bmp|gif|jpe?g|png|tiff?|webp)$/i.test(path.split(/[?#]/, 1)[0]);
+    return /\.(avif|bmp|gif|heic|heif|ico|jfif|jpe?g|png|svg|tiff?|webp)$/i.test(path.split(/[?#]/, 1)[0]);
   }
 
   function fileNameForDisplay(path) {
@@ -1108,7 +1132,7 @@
       if (!automatic) setMessage("此类内容的捕获已关闭，未写入历史。");
       return;
     }
-    if (snapshot.kind === "other") {
+    if (snapshot.kind === "other" || snapshot.kind === "empty") {
       if (!automatic) setMessage(snapshot.preview);
       return;
     }
@@ -1186,6 +1210,12 @@
     if (!automatic || !snapshot.persisted) await saveHistory();
     if (state.pendingOpenEntryId === storedEntry.id) focusCapturedEntry(storedEntry.id);
     if (automatic) {
+      // Native monitoring normally supplies the toast payload. The polling
+      // fallback still needs the same in-app feedback when native events are
+      // unavailable on a desktop session.
+      if (state.notificationSettings.inApp && !snapshot.toast?.message) {
+        setMessage(captureMessage(snapshot, storedEntry));
+      }
       setMonitorStatus("captured", "刚刚复制", `${formatTime(new Date())} · 已保存到本机`);
     } else {
       setMonitorStatus("captured", "已读取当前剪贴板", "内容已保存到本机");
@@ -1245,7 +1275,7 @@
     try {
       const snapshot = await invoke("read_clipboard");
       const signature = snapshotSignature(snapshot);
-      if (snapshot.kind === "other" || signature === state.lastClipboardText) return;
+      if (snapshot.kind === "other" || snapshot.kind === "empty" || signature === state.lastClipboardText) return;
       if (state.skipNextClipboard) {
         state.lastClipboardText = signature;
         state.skipNextClipboard = false;
@@ -1335,7 +1365,7 @@
       });
       await listen("clipboard-changed", ({ payload }) => {
         if (state.captureState.paused || state.captureState.privacyMode) return;
-        if (!payload || payload.kind === "other") {
+        if (!payload || payload.kind === "other" || payload.kind === "empty") {
           pollClipboard();
           return;
         }
@@ -1343,6 +1373,9 @@
           state.lastClipboardText = snapshotSignature(payload);
           state.skipNextClipboard = false;
           return;
+        }
+        if (state.notificationSettings.inApp && payload.toast?.message) {
+          setMessage(payload.toast.message);
         }
         // A native change event means the user copied again, even when the
         // copied text is identical. History deduplication is separate from

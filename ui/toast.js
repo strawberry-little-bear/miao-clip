@@ -32,7 +32,7 @@
 
   listen("clipboard-changed", async ({ payload }) => {
     const next = payload?.toast;
-    if (!next) return;
+    if (!next || next.desktop === false) return;
     const durationMs = Math.max(1000, Number(next.duration_ms) || 3000);
     const fadeMs = Math.max(0, Number(next.fade_ms) || 180);
     currentEntryId = next.entry_id || null;

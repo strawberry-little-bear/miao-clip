@@ -281,6 +281,7 @@ struct ToastPayload {
     message: String,
     entry_id: String,
     click_action: String,
+    desktop: bool,
     position: String,
     duration_ms: u64,
     fade_ms: u64,
@@ -328,11 +329,15 @@ impl ClipboardHandler for ClipboardMonitor {
                 {
                     return CallbackResult::Next;
                 }
-                if snapshot.kind != "other" && snapshot.kind != "empty" {
-                    match persist_captured_snapshot(&self.app, &snapshot, &self.history_lock) {
-                        Ok(()) => snapshot.persisted = true,
-                        Err(error) => log::warn!("后台保存剪贴板历史失败：{error}"),
-                    }
+                // Empty and unsupported clipboard changes are transient system
+                // states, not user content. Do not forward them to the WebView
+                // where they could be mistaken for a new history item.
+                if snapshot.kind == "empty" || snapshot.kind == "other" {
+                    return CallbackResult::Next;
+                }
+                match persist_captured_snapshot(&self.app, &snapshot, &self.history_lock) {
+                    Ok(()) => snapshot.persisted = true,
+                    Err(error) => log::warn!("后台保存剪贴板历史失败：{error}"),
                 }
                 snapshot.toast = build_toast_payload(
                     &snapshot,
@@ -505,7 +510,20 @@ fn is_image_path(path: &Path) -> bool {
         .map(|extension| {
             matches!(
                 extension.to_ascii_lowercase().as_str(),
-                "avif" | "bmp" | "gif" | "heic" | "jpeg" | "jpg" | "png" | "tif" | "tiff" | "webp"
+                "avif"
+                    | "bmp"
+                    | "gif"
+                    | "heic"
+                    | "heif"
+                    | "ico"
+                    | "jfif"
+                    | "jpeg"
+                    | "jpg"
+                    | "png"
+                    | "svg"
+                    | "tif"
+                    | "tiff"
+                    | "webp"
             )
         })
         .unwrap_or(false)
@@ -1137,7 +1155,7 @@ fn build_toast_payload(
 ) -> Option<ToastPayload> {
     let settings = notification_settings.read().ok()?.clone();
     if capture_suspended(capture_state)
-        || !settings.desktop
+        || (!settings.desktop && !settings.in_app)
         || snapshot.kind == "other"
         || snapshot.kind == "empty"
     {
@@ -1195,6 +1213,7 @@ fn build_toast_payload(
         message,
         entry_id: snapshot.entry_id.clone(),
         click_action: settings.toast_click_action.clone(),
+        desktop: settings.desktop,
         position: normalize_position(&settings.position),
         duration_ms: settings.duration_ms,
         fade_ms: 180,
@@ -3307,6 +3326,35 @@ mod tests {
     }
 
     #[test]
+    fn keeps_in_app_toast_when_desktop_toast_is_disabled() {
+        let mut notification_settings = NotificationSettings::default();
+        notification_settings.desktop = false;
+        notification_settings.in_app = true;
+        let settings = Arc::new(RwLock::new(notification_settings));
+        let capture_state = Arc::new(RwLock::new(CaptureState::default()));
+        let snapshot = ClipboardSnapshot {
+            kind: "text",
+            sensitivity: "normal",
+            text: Some("hello".to_string()),
+            preview: "hello".to_string(),
+            length: 5,
+            entry_id: "text-in-app-only".to_string(),
+            source_app: "测试应用".to_string(),
+            persisted: false,
+            image_id: None,
+            image_width: None,
+            image_height: None,
+            files: None,
+            toast: None,
+        };
+
+        let toast = build_toast_payload(&snapshot, &settings, &capture_state)
+            .expect("in-app toast should still be built");
+        assert!(!toast.desktop);
+        assert_eq!(toast.message, "已复制：hello · 来自：测试应用");
+    }
+
+    #[test]
     fn does_not_keep_source_app_when_display_is_disabled() {
         let mut snapshot = ClipboardSnapshot {
             kind: "files",
@@ -3360,6 +3408,9 @@ mod tests {
     fn recognizes_image_file_extensions_case_insensitively() {
         assert!(is_image_path(Path::new("/tmp/photo.JPEG")));
         assert!(is_image_path(Path::new(r"C:\\tmp\\photo.webp")));
+        assert!(is_image_path(Path::new("/tmp/photo.jfif")));
+        assert!(is_image_path(Path::new("/tmp/icon.ico")));
+        assert!(is_image_path(Path::new("/tmp/vector.svg")));
         assert!(!is_image_path(Path::new("/tmp/archive.zip")));
     }
 
