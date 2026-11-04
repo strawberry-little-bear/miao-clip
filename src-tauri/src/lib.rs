@@ -400,7 +400,7 @@ fn notification_title(text: &str) -> String {
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let first_line = normalized
         .lines()
-        .map(str::trim)
+        .map(trim_clipboard_noise)
         .find(|line| !line.is_empty())
         .unwrap_or_default();
     let mut chars = first_line.chars();
@@ -412,6 +412,21 @@ fn notification_title(text: &str) -> String {
     } else {
         title
     }
+}
+
+fn trim_clipboard_noise(text: &str) -> &str {
+    text.trim_matches(|character: char| {
+        character.is_whitespace()
+            || matches!(
+                character,
+                '\u{feff}' | '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{2060}'
+            )
+    })
+}
+
+fn has_meaningful_clipboard_text(text: &str) -> bool {
+    text.lines()
+        .any(|line| !trim_clipboard_noise(line).is_empty())
 }
 
 fn file_name(path: &str) -> String {
@@ -992,6 +1007,39 @@ fn build_toast_payload(
         return None;
     }
 
+    let message = if sensitive {
+        "已复制敏感信息：******（点击查看记录）".to_string()
+    } else if snapshot.kind == "image" {
+        if let (Some(width), Some(height)) = (snapshot.image_width, snapshot.image_height) {
+            format!("已复制一张图片：{width} × {height}")
+        } else {
+            let name = file_names(snapshot.files.as_deref().unwrap_or_default());
+            format!("已复制一张图片：{name}（无法预览）")
+        }
+    } else if snapshot.kind == "files" {
+        let files = snapshot.files.as_deref().unwrap_or_default();
+        let count = files.len();
+        let names = notification_title(&file_names(files));
+        if count == 1 {
+            format!("已复制文件：{names}")
+        } else {
+            format!("已复制 {count} 个文件：{names}")
+        }
+    } else {
+        format!(
+            "已复制：{}",
+            notification_title(snapshot.text.as_deref().unwrap_or_default())
+        )
+    };
+    let message = if settings.show_source_app
+        && !snapshot.source_app.is_empty()
+        && snapshot.source_app != default_source_app()
+    {
+        format!("{message} · 来自：{}", snapshot.source_app)
+    } else {
+        message
+    };
+
     Some(ToastPayload {
         kind: if sensitive {
             "敏感信息".to_string()
@@ -1002,30 +1050,7 @@ fn build_toast_payload(
         } else {
             "新剪贴板内容".to_string()
         },
-        message: if sensitive {
-            "已复制敏感信息：******（点击查看记录）".to_string()
-        } else if snapshot.kind == "image" {
-            if let (Some(width), Some(height)) = (snapshot.image_width, snapshot.image_height) {
-                format!("已复制一张图片：{width} × {height}")
-            } else {
-                let name = file_names(snapshot.files.as_deref().unwrap_or_default());
-                format!("已复制一张图片：{name}（无法预览）")
-            }
-        } else if snapshot.kind == "files" {
-            let files = snapshot.files.as_deref().unwrap_or_default();
-            let count = files.len();
-            let names = notification_title(&file_names(files));
-            if count == 1 {
-                format!("已复制文件：{names}")
-            } else {
-                format!("已复制 {count} 个文件：{names}")
-            }
-        } else {
-            format!(
-                "已复制：{}",
-                notification_title(snapshot.text.as_deref().unwrap_or_default())
-            )
-        },
+        message,
         entry_id: snapshot.entry_id.clone(),
         click_action: settings.toast_click_action.clone(),
         position: normalize_position(&settings.position),
@@ -1589,40 +1614,38 @@ fn arboard_image_to_snapshot(
 }
 
 fn image_file_to_snapshot(app: &AppHandle, path: &Path) -> Option<ClipboardSnapshot> {
-    if !is_image_path(path) {
-        return None;
-    }
+    let looks_like_image = is_image_path(path);
     if !path.is_file() {
-        return Some(unavailable_image_snapshot(path));
+        return looks_like_image.then(|| unavailable_image_snapshot(path));
     }
 
     let size = match fs::metadata(path) {
         Ok(metadata) => metadata.len(),
-        Err(_) => return Some(unavailable_image_snapshot(path)),
+        Err(_) => return looks_like_image.then(|| unavailable_image_snapshot(path)),
     };
     if size > MAX_FILE_PREVIEW_BYTES {
-        return Some(unavailable_image_snapshot(path));
+        return looks_like_image.then(|| unavailable_image_snapshot(path));
     }
 
-    // Decode from bytes after identifying image paths. Some chat clients save
-    // a GIF/WebP payload with a `.jpg` name when exposing an image file path.
+    // Decode the bytes instead of trusting the extension. Some chat clients
+    // expose an image under a misleading name, or without an extension.
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
-        Err(_) => return Some(unavailable_image_snapshot(path)),
+        Err(_) => return looks_like_image.then(|| unavailable_image_snapshot(path)),
     };
     let image = match image::load_from_memory(&bytes) {
         Ok(image) => image,
-        Err(_) => return Some(unavailable_image_snapshot(path)),
+        Err(_) => return looks_like_image.then(|| unavailable_image_snapshot(path)),
     };
     let width = image.width();
     let height = image.height();
     let mut png = std::io::Cursor::new(Vec::new());
     if image.write_to(&mut png, image::ImageFormat::Png).is_err() {
-        return Some(unavailable_image_snapshot(path));
+        return looks_like_image.then(|| unavailable_image_snapshot(path));
     }
     match save_png_image_snapshot(app, png.into_inner(), width, height) {
         Ok(snapshot) => Some(snapshot),
-        Err(_) => Some(unavailable_image_snapshot(path)),
+        Err(_) => looks_like_image.then(|| unavailable_image_snapshot(path)),
     }
 }
 
@@ -1721,7 +1744,7 @@ fn read_clipboard_snapshot(
     let source_app = source_app_name();
     match clipboard.get_text() {
         Ok(text) => Ok(ClipboardSnapshot {
-            kind: if text.trim().is_empty() {
+            kind: if !has_meaningful_clipboard_text(&text) {
                 "empty"
             } else {
                 "text"
@@ -2639,10 +2662,10 @@ mod tests {
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
         build_toast_payload, content_entry_id, decode_image_buffers, file_name,
-        history_entry_from_snapshot, history_entry_matches_snapshot, is_image_format,
-        is_image_path, is_sensitive_text, normalize_cleanup_schedule, normalize_history,
-        normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
-        sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
+        has_meaningful_clipboard_text, history_entry_from_snapshot, history_entry_matches_snapshot,
+        is_image_format, is_image_path, is_sensitive_text, normalize_cleanup_schedule,
+        normalize_history, normalize_notification_settings, normalize_position, notification_title,
+        prune_old_entries, sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -2761,7 +2784,19 @@ mod tests {
         let capture_state = Arc::new(RwLock::new(CaptureState::default()));
         let toast = build_toast_payload(&snapshot, &settings, &capture_state)
             .expect("notification should be enabled");
-        assert_eq!(toast.message, "已复制：Actual title line");
+        assert_eq!(toast.message, "已复制：Actual title line · 来自：测试应用");
+    }
+
+    #[test]
+    fn treats_unicode_formatting_only_text_as_empty() {
+        assert!(!has_meaningful_clipboard_text(
+            "\u{feff}\u{200b}\n \t\u{2060}"
+        ));
+        assert!(has_meaningful_clipboard_text("\u{feff}\n 真实内容"));
+        assert_eq!(
+            notification_title("\u{feff}\u{200b}\n 真实标题"),
+            "真实标题"
+        );
     }
 
     #[test]
@@ -3050,7 +3085,10 @@ mod tests {
         let image_toast =
             build_toast_payload(&image, &settings, &capture_state).expect("image toast");
         assert_eq!(image_toast.kind, "图片");
-        assert_eq!(image_toast.message, "已复制一张图片：800 × 600");
+        assert_eq!(
+            image_toast.message,
+            "已复制一张图片：800 × 600 · 来自：测试应用"
+        );
         assert_eq!(image_toast.duration_ms, 3_000);
 
         let files = ClipboardSnapshot {
@@ -3070,7 +3108,10 @@ mod tests {
         };
         let file_toast =
             build_toast_payload(&files, &settings, &capture_state).expect("file toast");
-        assert_eq!(file_toast.message, "已复制文件：report.zip");
+        assert_eq!(
+            file_toast.message,
+            "已复制文件：report.zip · 来自：测试应用"
+        );
         assert!(!file_toast.message.contains("/Users/demo"));
 
         let history_entry = history_entry_from_snapshot(&files);
@@ -3132,7 +3173,10 @@ mod tests {
             .expect("toast should be enabled");
         assert_eq!(toast.kind, "敏感信息");
         assert_eq!(toast.entry_id, "text-test");
-        assert_eq!(toast.message, "已复制敏感信息：******（点击查看记录）");
+        assert_eq!(
+            toast.message,
+            "已复制敏感信息：******（点击查看记录） · 来自：测试应用"
+        );
         assert!(!toast.message.contains("do-not-show-this"));
     }
 
