@@ -2562,6 +2562,14 @@ pub fn run() {
             let monitor_generation = Arc::new(AtomicU64::new(0));
             let history_lock = Arc::new(Mutex::new(()));
             let suppressed_entries = Arc::new(RwLock::new(HashMap::new()));
+
+            // Migrate and protect legacy sensitive entries before the app can
+            // run headlessly from the tray. This keeps plaintext out of the
+            // history file even when the main window has not loaded yet.
+            if let Err(error) = read_history_entries(app.handle()) {
+                log::warn!("启动时整理本地历史失败：{error}");
+            }
+
             let runtime_state = RuntimeState {
                 notification_settings: notification_settings.clone(),
                 capture_state: capture_state.clone(),
