@@ -467,17 +467,21 @@ fn normalize_file_path(value: &str) -> String {
     let path = decode_file_url_path(path);
 
     #[cfg(target_os = "windows")]
-    let path = if path.starts_with('/')
-        && path.as_bytes().get(2) == Some(&b':')
-        && path.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
     {
-        path[1..].to_string()
-    } else {
-        path
-    };
+        if path.starts_with('/')
+            && path.as_bytes().get(2) == Some(&b':')
+            && path.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
+        {
+            path[1..].to_string()
+        } else {
+            path
+        }
+    }
 
     #[cfg(not(target_os = "windows"))]
-    path
+    {
+        path
+    }
 }
 
 fn normalize_file_paths(paths: Vec<String>) -> Vec<String> {
