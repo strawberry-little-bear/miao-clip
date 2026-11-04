@@ -313,6 +313,7 @@ impl ClipboardHandler for ClipboardMonitor {
         };
         match read_clipboard_snapshot(&self.app, &settings) {
             Ok(mut snapshot) => {
+                sanitize_source_app(&mut snapshot, &settings);
                 update_monitor_status(
                     &self.app,
                     &self.monitor_status,
@@ -1727,7 +1728,15 @@ fn read_clipboard(
         .read()
         .map_err(|_| "无法读取剪贴板捕获设置。".to_string())?
         .clone();
-    read_clipboard_snapshot(&app, &settings)
+    let mut snapshot = read_clipboard_snapshot(&app, &settings)?;
+    sanitize_source_app(&mut snapshot, &settings);
+    Ok(snapshot)
+}
+
+fn sanitize_source_app(snapshot: &mut ClipboardSnapshot, settings: &NotificationSettings) {
+    if !settings.show_source_app {
+        snapshot.source_app = default_source_app();
+    }
 }
 
 fn read_clipboard_snapshot(
@@ -2705,7 +2714,7 @@ mod tests {
         is_email_like, is_existing_secure_item_error, is_image_format, is_image_path,
         is_sensitive_text, normalize_cleanup_schedule, normalize_history,
         normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
-        sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
+        sanitize_source_app, sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3204,6 +3213,37 @@ mod tests {
         assert_eq!(history_entry.kind, "文件");
         assert_eq!(history_entry.source_app, "测试应用");
         assert_eq!(history_entry.files, files.files);
+    }
+
+    #[test]
+    fn does_not_keep_source_app_when_display_is_disabled() {
+        let mut snapshot = ClipboardSnapshot {
+            kind: "files",
+            sensitivity: "normal",
+            text: Some("/Users/demo/Downloads/report.zip".to_string()),
+            preview: "report.zip 等 1 个".to_string(),
+            length: 1,
+            entry_id: "files-test".to_string(),
+            source_app: "Finder".to_string(),
+            persisted: false,
+            image_id: None,
+            image_width: None,
+            image_height: None,
+            files: Some(vec!["/Users/demo/Downloads/report.zip".to_string()]),
+            toast: None,
+        };
+        let settings = NotificationSettings {
+            show_source_app: false,
+            ..NotificationSettings::default()
+        };
+
+        sanitize_source_app(&mut snapshot, &settings);
+
+        assert_eq!(snapshot.source_app, "未知应用");
+        assert_eq!(
+            history_entry_from_snapshot(&snapshot).source_app,
+            "未知应用"
+        );
     }
 
     #[test]
