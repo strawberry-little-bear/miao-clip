@@ -860,6 +860,13 @@ fn sensitive_store_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> 
         .map_err(|_| "无法锁定系统安全存储。".to_string())
 }
 
+fn is_existing_secure_item_error(error: &dyn std::fmt::Display) -> bool {
+    error
+        .to_string()
+        .to_ascii_lowercase()
+        .contains("already exists")
+}
+
 fn store_sensitive_secret(secret_ref: &str, text: &str) -> Result<(), String> {
     let _guard = sensitive_store_lock()?;
     let entry = sensitive_keyring_entry(secret_ref)?;
@@ -874,13 +881,21 @@ fn store_sensitive_secret(secret_ref: &str, text: &str) -> Result<(), String> {
 
     match entry.set_password(text) {
         Ok(()) => Ok(()),
-        Err(error) if error.to_string().contains("already exists") => {
-            // A concurrent writer can win between the lookup and the write.
-            // If the item is now readable, the write has already completed.
-            match entry.get_password() {
-                Ok(existing) if existing == text => Ok(()),
-                _ => Err(format!("无法写入系统安全存储：{error}")),
+        Err(error) if is_existing_secure_item_error(&error) => {
+            // Some keyring backends report an existing item instead of
+            // updating it. Recreate that one item so a stale or inaccessible
+            // record does not permanently block a new sensitive capture.
+            if let Ok(existing) = entry.get_password()
+                && existing == text
+            {
+                return Ok(());
             }
+            entry
+                .delete_credential()
+                .map_err(|delete_error| format!("无法修复系统安全存储条目：{delete_error}"))?;
+            entry
+                .set_password(text)
+                .map_err(|set_error| format!("无法写入系统安全存储：{set_error}"))
         }
         Err(error) => Err(format!("无法写入系统安全存储：{error}")),
     }
@@ -2624,9 +2639,10 @@ mod tests {
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
         build_toast_payload, content_entry_id, decode_image_buffers, file_name,
         has_meaningful_clipboard_text, history_entry_from_snapshot, history_entry_matches_snapshot,
-        is_image_format, is_image_path, is_sensitive_text, normalize_cleanup_schedule,
-        normalize_history, normalize_notification_settings, normalize_position, notification_title,
-        prune_old_entries, sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
+        is_existing_secure_item_error, is_image_format, is_image_path, is_sensitive_text,
+        normalize_cleanup_schedule, normalize_history, normalize_notification_settings,
+        normalize_position, notification_title, prune_old_entries, sensitive_secret_ref,
+        unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -2697,6 +2713,15 @@ mod tests {
         assert!(is_sensitive_text("ghp_exampletoken"));
         assert!(!is_sensitive_text("https://example.com/docs?tab=api"));
         assert!(!is_sensitive_text("这是普通的剪贴板内容"));
+    }
+
+    #[test]
+    fn recognizes_existing_secure_item_errors_case_insensitively() {
+        assert!(is_existing_secure_item_error(
+            &"The specified item already exists."
+        ));
+        assert!(is_existing_secure_item_error(&"ALREADY EXISTS"));
+        assert!(!is_existing_secure_item_error(&"item not found"));
     }
 
     #[test]
