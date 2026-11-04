@@ -426,6 +426,67 @@ fn file_name(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn decode_file_url_path(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+        {
+            decoded.push(high * 16 + low);
+            index += 3;
+            continue;
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8(decoded).unwrap_or_else(|_| value.to_string())
+}
+
+fn normalize_file_path(value: &str) -> String {
+    let trimmed = value.trim();
+    let Some(mut path) = trimmed.strip_prefix("file://") else {
+        return value.to_string();
+    };
+
+    if let Some(localhost_path) = path.strip_prefix("localhost") {
+        path = localhost_path;
+    }
+    let path = decode_file_url_path(path);
+
+    #[cfg(target_os = "windows")]
+    let path = if path.starts_with('/')
+        && path.as_bytes().get(2) == Some(&b':')
+        && path.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
+    {
+        path[1..].to_string()
+    } else {
+        path
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    path
+}
+
+fn normalize_file_paths(paths: Vec<String>) -> Vec<String> {
+    paths
+        .into_iter()
+        .map(|path| normalize_file_path(&path))
+        .collect()
+}
+
 fn file_names(paths: &[String]) -> String {
     paths
         .iter()
@@ -1773,9 +1834,10 @@ fn read_clipboard_snapshot(
             return Ok(snapshot);
         }
 
-        if let Ok(files) = clipboard.get_files()
-            && !files.is_empty()
+        if let Ok(raw_files) = clipboard.get_files()
+            && !raw_files.is_empty()
         {
+            let files = normalize_file_paths(raw_files);
             if settings.capture_images
                 && files.len() == 1
                 && let Some(snapshot) = image_file_to_snapshot(app, Path::new(&files[0]))
@@ -2720,7 +2782,7 @@ mod tests {
         build_toast_payload, classify_text, content_entry_id, decode_image_buffers, file_name,
         has_meaningful_clipboard_text, history_entry_from_snapshot, history_entry_matches_snapshot,
         is_email_like, is_existing_secure_item_error, is_image_format, is_image_path,
-        is_sensitive_text, normalize_cleanup_schedule, normalize_history,
+        is_sensitive_text, normalize_cleanup_schedule, normalize_file_path, normalize_history,
         normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
         sanitize_source_app, sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
     };
@@ -2863,6 +2925,22 @@ mod tests {
         let toast = build_toast_payload(&snapshot, &settings, &capture_state)
             .expect("notification should be enabled");
         assert_eq!(toast.message, "已复制：Actual title line · 来自：测试应用");
+    }
+
+    #[test]
+    fn normalizes_file_urls_before_preview_and_recopy() {
+        assert_eq!(
+            normalize_file_path("file:///Users/demo/My%20Picture%20%231.png"),
+            "/Users/demo/My Picture #1.png"
+        );
+        assert_eq!(
+            normalize_file_path("file://localhost/Users/demo/report.zip"),
+            "/Users/demo/report.zip"
+        );
+        assert_eq!(
+            normalize_file_path("/Users/demo/report.zip"),
+            "/Users/demo/report.zip"
+        );
     }
 
     #[test]
