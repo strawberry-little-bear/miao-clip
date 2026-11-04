@@ -519,10 +519,11 @@
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
+      second: "2-digit",
       hourCycle: "h23",
     }).formatToParts(value);
     const part = (type) => parts.find((item) => item.type === type)?.value || "";
-    return `${part("year")}/${part("month")}/${part("day")} ${part("hour")}:${part("minute")}`;
+    return `${part("year")}/${part("month")}/${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
   }
 
   function escapeHtml(value) {
