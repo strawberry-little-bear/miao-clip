@@ -301,6 +301,10 @@ impl ClipboardHandler for ClipboardMonitor {
         if capture_suspended(&self.capture_state) {
             return CallbackResult::Next;
         }
+        // Capture the owner before waiting for the pasteboard to settle. The
+        // foreground app can change during the read, which would otherwise
+        // attribute the entry to the wrong application.
+        let source_app = source_app_name();
         // macOS may still be writing the pasteboard when changeCount changes.
         // Read after a short settling period so the event already contains the
         // new value.
@@ -312,7 +316,7 @@ impl ClipboardHandler for ClipboardMonitor {
             Ok(settings) => settings.clone(),
             Err(_) => return CallbackResult::Next,
         };
-        match read_clipboard_snapshot(&self.app, &settings) {
+        match read_clipboard_snapshot(&self.app, &settings, Some(&source_app)) {
             Ok(mut snapshot) => {
                 sanitize_source_app(&mut snapshot, &settings);
                 update_monitor_status(
@@ -1850,7 +1854,7 @@ fn read_clipboard(
         .read()
         .map_err(|_| "无法读取剪贴板捕获设置。".to_string())?
         .clone();
-    let mut snapshot = read_clipboard_snapshot(&app, &settings)?;
+    let mut snapshot = read_clipboard_snapshot(&app, &settings, None)?;
     sanitize_source_app(&mut snapshot, &settings);
     Ok(snapshot)
 }
@@ -1864,7 +1868,16 @@ fn sanitize_source_app(snapshot: &mut ClipboardSnapshot, settings: &Notification
 fn read_clipboard_snapshot(
     app: &AppHandle,
     settings: &NotificationSettings,
+    source_app_hint: Option<&str>,
 ) -> Result<ClipboardSnapshot, String> {
+    // A native clipboard event supplies a source captured at event time. For
+    // manual reads and polling, resolve it once before inspecting formats so
+    // every branch uses the same source value.
+    let source_app = source_app_hint
+        .filter(|name| !name.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(source_app_name);
+
     if let Ok(clipboard) = ClipboardContext::new() {
         // Some macOS sources expose both file URLs and a rendered image on the
         // same pasteboard. Prefer the actual image payload so copied pictures
@@ -1891,7 +1904,7 @@ fn read_clipboard_snapshot(
                 .map_err(|error| format!("无法编码剪贴板图片：{error}"))?;
             let mut snapshot =
                 save_png_image_snapshot(app, png.get_bytes().to_vec(), width, height)?;
-            snapshot.source_app = source_app_name();
+            snapshot.source_app = source_app.clone();
             return Ok(snapshot);
         }
 
@@ -1905,7 +1918,7 @@ fn read_clipboard_snapshot(
                 }
                 let mut snapshot = image_file_to_snapshot(app, Path::new(&files[0]))
                     .unwrap_or_else(|| unavailable_image_snapshot(Path::new(&files[0])));
-                snapshot.source_app = source_app_name();
+                snapshot.source_app = source_app.clone();
                 return Ok(snapshot);
             }
             if !settings.capture_files {
@@ -1923,7 +1936,7 @@ fn read_clipboard_snapshot(
                 preview: format!("{first_name} 等 {} 个", files.len()),
                 length: files.len(),
                 entry_id: content_entry_id("files", files.join("\0").as_bytes()),
-                source_app: source_app_name(),
+                source_app: source_app.clone(),
                 persisted: false,
                 image_id: None,
                 image_width: None,
@@ -1940,10 +1953,9 @@ fn read_clipboard_snapshot(
             return Ok(ignored_capture_snapshot("图片捕获已关闭"));
         }
         let mut snapshot = arboard_image_to_snapshot(app, image)?;
-        snapshot.source_app = source_app_name();
+        snapshot.source_app = source_app.clone();
         return Ok(snapshot);
     }
-    let source_app = source_app_name();
     match clipboard.get_text() {
         Ok(text) => Ok(ClipboardSnapshot {
             kind: if !has_meaningful_clipboard_text(&text) {

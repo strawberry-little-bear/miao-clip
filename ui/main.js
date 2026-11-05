@@ -14,6 +14,7 @@
     view: "inbox",
     lastClipboardText: null,
     isPollingClipboard: false,
+    nativeMonitorRunning: false,
     settingsSaveRequest: 0,
     pendingOpenEntryId: null,
     captureState: {
@@ -173,6 +174,7 @@
     if (!diagnostics) return;
     const monitor = diagnostics.monitor || {};
     const monitorRunning = monitor.state === "running";
+    state.nativeMonitorRunning = monitorRunning;
     elements.diagnosticPlatformState.textContent = `${diagnostics.platform || "未知平台"} · ${diagnostics.architecture || "未知架构"}`;
     elements.diagnosticPlatformState.dataset.state = "ok";
     elements.diagnosticPlatformDetail.textContent = "当前应用运行环境。";
@@ -1274,7 +1276,7 @@
   }
 
   async function pollClipboard() {
-    if (!invoke || state.isPollingClipboard || state.captureState.paused || state.captureState.privacyMode) return;
+    if (!invoke || state.nativeMonitorRunning || state.isPollingClipboard || state.captureState.paused || state.captureState.privacyMode) return;
     state.isPollingClipboard = true;
     try {
       const snapshot = await invoke("read_clipboard");
@@ -1310,6 +1312,7 @@
       await listen("clipboard-monitor-status", ({ payload }) => {
         const status = payload || {};
         const monitorState = status.state || "error";
+        state.nativeMonitorRunning = monitorState === "running";
         setMonitorStatus(
           monitorState === "running" ? "listening" : monitorState === "starting" ? "starting" : "error",
           monitorState === "running" ? "正在监听" : monitorState === "starting" ? "正在启动监听" : "监听暂不可用",
@@ -1399,8 +1402,9 @@
       return;
     }
     renderCaptureStatus();
-    // Native events are preferred; this catches environments where the native
-    // backend cannot observe the current desktop session.
+    // Native events are preferred. Poll only while the native watcher is not
+    // running, otherwise a second read can observe MiaoClip itself as the source
+    // after the window receives focus.
     window.setInterval(pollClipboard, listen ? 2000 : 700);
   }
 
