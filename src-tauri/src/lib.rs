@@ -361,10 +361,13 @@ impl ClipboardHandler for ClipboardMonitor {
         if capture_suspended(&self.capture_state) {
             return CallbackResult::Next;
         }
-        // Keep a fallback captured before the pasteboard settles. On macOS
-        // the callback can run after the user has already switched windows,
-        // so asking for the frontmost app only after the callback is too late.
-        #[cfg(not(target_os = "macos"))]
+        // Capture the source before the clipboard settles. On platforms
+        // without a clipboard-owner API, the callback can run after the user
+        // has already switched windows, so a second sample is used to reject
+        // an unstable foreground-app attribution.
+        #[cfg(target_os = "linux")]
+        let initial_source_app = source_app_name();
+        #[cfg(target_os = "windows")]
         let fallback_source_app = source_app_name();
         #[cfg(target_os = "macos")]
         let change_count_before_settle = macos_pasteboard_change_count();
@@ -393,7 +396,9 @@ impl ClipboardHandler for ClipboardMonitor {
             }
             None => default_source_app(),
         };
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        let fallback_source_app = stable_source_app_name(&initial_source_app, &source_app_name());
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         let source_app =
             take_source_app_hint(&self.source_app_hint, None).unwrap_or(fallback_source_app);
         let settings = match self.notification_settings.read() {
@@ -859,7 +864,7 @@ fn source_app_name() -> String {
 
     #[cfg(target_os = "windows")]
     {
-        if let Some(name) = windows_foreground_app_name() {
+        if let Some(name) = windows_clipboard_owner_app_name() {
             return normalize_source_app_name(name);
         }
     }
@@ -998,7 +1003,7 @@ fn spawn_macos_source_tracker(
 }
 
 #[cfg(target_os = "windows")]
-fn windows_foreground_app_name() -> Option<String> {
+fn windows_clipboard_owner_app_name() -> Option<String> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::Foundation::CloseHandle;
@@ -1006,26 +1011,14 @@ fn windows_foreground_app_name() -> Option<String> {
     use windows_sys::Win32::System::Threading::{
         OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowThreadProcessId,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
 
-    // The clipboard watcher runs in a background thread. Querying the
-    // foreground window at capture time gives us the application that owned
-    // the clipboard before MiaoClip handled the change.
+    // The clipboard owner is tied to the write operation. Do not fall back to
+    // the foreground window: the user may have switched applications before
+    // the background watcher handles the change, which would misattribute the
+    // copied content.
     unsafe {
-        // The clipboard owner is tied to the write operation and is more
-        // reliable than the foreground window after the user switches apps.
-        // Some providers do not expose an owner, so retain the foreground
-        // window as a fallback.
-        let window = {
-            let owner = GetClipboardOwner();
-            if owner.is_null() {
-                GetForegroundWindow()
-            } else {
-                owner
-            }
-        };
+        let window = GetClipboardOwner();
         if window.is_null() {
             return None;
         }
@@ -3195,6 +3188,7 @@ mod tests {
     fn source_app_is_unknown_when_the_frontmost_app_changes_during_sampling() {
         assert_eq!(stable_source_app_name("Safari", "Safari"), "Safari");
         assert_eq!(stable_source_app_name("Safari", "Terminal"), "未知应用");
+        assert_eq!(stable_source_app_name("未知应用", "Safari"), "未知应用");
         assert_eq!(
             stable_source_app_name("loginwindow", "loginwindow"),
             "未知应用"
