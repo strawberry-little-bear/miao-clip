@@ -826,58 +826,72 @@ fn windows_foreground_app_name() -> Option<String> {
 
 fn is_sensitive_text(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
-    let key_markers = [
-        "password=",
-        "password:",
-        "passwd=",
-        "passwd:",
-        "api_key=",
-        "api_key:",
-        "api-key=",
-        "api-key:",
-        "access_token=",
-        "access_token:",
-        "access-token=",
-        "access-token:",
-        "client_secret=",
-        "client_secret:",
-        "client-secret=",
-        "client-secret:",
-        "private_key=",
-        "private_key:",
-        "private-key=",
-        "private-key:",
-        "password：",
-        "passwd：",
-        "api_key：",
-        "api-key：",
-        "access_token：",
-        "access-token：",
-        "client_secret：",
-        "client-secret：",
-        "private_key：",
-        "private-key：",
-        "密码:",
-        "密码=",
-        "密码：",
-        "口令:",
-        "口令=",
-        "口令：",
-        "密钥:",
-        "密钥=",
-        "密钥：",
-        "银行卡号:",
-        "身份证号:",
+    let key_names = [
+        "password",
+        "passwd",
+        "apikey",
+        "api_key",
+        "api-key",
+        "access_token",
+        "access-token",
+        "client_secret",
+        "client-secret",
+        "private_key",
+        "private-key",
+        "token",
+        "secret",
+        "密码",
+        "口令",
+        "密钥",
+        "银行卡号",
+        "身份证号",
     ];
 
-    key_markers.iter().any(|marker| lower.contains(marker))
+    key_names
+        .iter()
+        .any(|key| has_secret_assignment(&lower, key))
         || lower.contains("authorization: bearer ")
         || lower.contains("bearer ")
-        || ["ghp_", "github_pat_", "xoxb-", "sk_live_", "akia"]
-            .iter()
-            .any(|prefix| lower.contains(prefix))
+        || looks_like_secret_token(&lower)
         || is_valid_payment_card_number(text)
         || is_valid_chinese_identity_number(text)
+}
+
+fn has_secret_assignment(text: &str, key: &str) -> bool {
+    let mut search_start = 0;
+    while let Some(offset) = text[search_start..].find(key) {
+        let start = search_start + offset + key.len();
+        let remainder = text[start..].trim_start_matches(char::is_whitespace);
+        if matches!(remainder.chars().next(), Some(':' | '=' | '：')) {
+            return true;
+        }
+        search_start = start;
+    }
+    false
+}
+
+fn looks_like_secret_token(text: &str) -> bool {
+    let value = text.trim();
+    [
+        "ghp",
+        "github_pat",
+        "sk-",
+        "xoxb-",
+        "xoxa-",
+        "xoxp-",
+        "xoxr-",
+        "xoxs-",
+        "akia",
+    ]
+    .iter()
+    .any(|prefix| {
+        value.strip_prefix(prefix).is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        })
+    })
 }
 
 fn classify_text(text: &str, sensitivity: &str) -> &'static str {
@@ -2897,10 +2911,20 @@ mod tests {
     #[test]
     fn recognizes_common_secret_shapes() {
         assert!(is_sensitive_text("password=correct horse battery staple"));
+        assert!(is_sensitive_text("token   ：abc123"));
+        assert!(is_sensitive_text("private_key = abc123"));
         assert!(is_sensitive_text("Authorization: Bearer abc123"));
         assert!(is_sensitive_text("ghp_exampletoken"));
+        assert!(is_sensitive_text("ghpExampleToken"));
+        assert!(is_sensitive_text("github_pat_ExampleToken"));
+        assert!(is_sensitive_text("sk-example-key"));
+        assert!(is_sensitive_text("xoxp-example-token"));
         assert!(is_sensitive_text("密码：正确马电池订书钉"));
         assert!(!is_sensitive_text("https://example.com/docs?tab=api"));
+        assert!(!is_sensitive_text("sk-"));
+        assert!(!is_sensitive_text(
+            "a sentence mentioning sk-example-key here"
+        ));
         assert!(!is_sensitive_text("这是普通的剪贴板内容"));
     }
 
@@ -2911,8 +2935,34 @@ mod tests {
         assert_eq!(classify_text("账号：demo-user", "normal"), "account");
         assert_eq!(classify_text("https://example.com/a b", "normal"), "text");
         assert_eq!(classify_text("password=secret", "normal"), "password");
+        assert_eq!(classify_text("sk-example-key", "normal"), "password");
         assert!(is_email_like("name@example.com"));
         assert!(!is_email_like("name@example"));
+    }
+
+    #[test]
+    fn sensitive_token_snapshot_is_protected_even_without_frontend_hint() {
+        let snapshot = ClipboardSnapshot {
+            kind: "text",
+            sensitivity: "normal",
+            text: Some("sk-example-key".to_string()),
+            preview: "sk-example-key".to_string(),
+            length: 14,
+            entry_id: "sk-token-test".to_string(),
+            source_app: "测试应用".to_string(),
+            persisted: false,
+            image_id: None,
+            image_width: None,
+            image_height: None,
+            files: None,
+            toast: None,
+        };
+
+        let entry = history_entry_from_snapshot(&snapshot);
+
+        assert_eq!(entry.category, "password");
+        assert_eq!(entry.title, "敏感信息");
+        assert_eq!(entry.secret_ref, None);
     }
 
     #[test]

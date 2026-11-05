@@ -450,7 +450,7 @@
   function classifyText(text, sensitivity = "normal") {
     const value = text.trim();
     const lower = value.toLowerCase();
-    if (sensitivity === "sensitive" || /(?:password|passwd|api[_-]?key|token|secret|private[_-]?key)\s*[:=]/i.test(value) || /^(?:ghp|github_pat|sk-|xox[baprs]-)[a-z0-9_-]+$/i.test(value)) return "password";
+    if (sensitivity === "sensitive" || /(?:password|passwd|api[_-]?key|token|secret|private[_-]?key)\s*[:=：]/i.test(value) || /^(?:ghp|github_pat|sk-|xox[baprs]-|akia)[a-z0-9_-]+$/i.test(value)) return "password";
     if (/^(?:https?|ftp):\/\/\S+$/i.test(value) || /^www\.\S+$/i.test(value)) return "url";
     if (/^(?:username|user|account|账号|用户名)\s*[:=]/i.test(value) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return "account";
     if (lower.startsWith("mailto:")) return "account";
@@ -517,7 +517,11 @@
     const nativeCategory = ["text", "url", "account", "password"].includes(entry.category)
       ? entry.category
       : null;
-    const category = mediaCategory || nativeCategory || detectedCategory;
+    // A legacy entry may still say "text" even though its plaintext matches
+    // a sensitive pattern. Prefer the detected protected category so the
+    // reveal flow remains available while the Rust side migrates the record.
+    const category = mediaCategory
+      || (detectedCategory === "password" ? "password" : nativeCategory || detectedCategory);
     const kind = mediaCategory === "image" ? "图片" : mediaCategory === "file" ? "文件" : entry.kind;
     return {
       ...entry,
