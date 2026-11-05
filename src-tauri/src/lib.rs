@@ -1,8 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 #[cfg(not(target_os = "windows"))]
 use std::process::Command;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread;
@@ -294,6 +296,13 @@ struct ClipboardMonitor {
     monitor_status: Arc<RwLock<MonitorStatus>>,
     history_lock: Arc<Mutex<()>>,
     suppressed_entries: Arc<RwLock<HashMap<String, Instant>>>,
+    source_app_hint: Arc<Mutex<VecDeque<SourceAppHint>>>,
+}
+
+#[derive(Clone)]
+struct SourceAppHint {
+    name: String,
+    observed_at: Instant,
 }
 
 impl ClipboardHandler for ClipboardMonitor {
@@ -316,10 +325,11 @@ impl ClipboardHandler for ClipboardMonitor {
         if capture_suspended(&self.capture_state) {
             return CallbackResult::Next;
         }
-        // Capture the owner before waiting for the pasteboard to settle. The
-        // foreground app can change during the read, which would otherwise
-        // attribute the entry to the wrong application.
-        let source_app = source_app_name();
+        // Prefer a source captured alongside the pasteboard change. On macOS
+        // the callback can run after the user has already switched windows,
+        // so asking for the frontmost app here is sometimes too late.
+        let source_app =
+            take_source_app_hint(&self.source_app_hint).unwrap_or_else(source_app_name);
         // macOS may still be writing the pasteboard when changeCount changes.
         // Read after a short settling period so the event already contains the
         // new value.
@@ -759,6 +769,10 @@ fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
 fn source_app_name() -> String {
     #[cfg(target_os = "macos")]
     {
+        if let Some(name) = macos_frontmost_app_name() {
+            return name;
+        }
+
         let script = "tell application \"System Events\" to get name of first application process whose frontmost is true";
         if let Ok(output) = Command::new("/usr/bin/osascript")
             .args(["-e", script])
@@ -792,6 +806,80 @@ fn source_app_name() -> String {
     }
 
     default_source_app()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_frontmost_app_name() -> Option<String> {
+    use objc2_app_kit::NSWorkspace;
+
+    let app = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    let name = app.localizedName()?.to_string();
+    (!name.trim().is_empty()).then_some(name)
+}
+
+fn take_source_app_hint(hint: &Arc<Mutex<VecDeque<SourceAppHint>>>) -> Option<String> {
+    let Ok(mut hints) = hint.lock() else {
+        return None;
+    };
+
+    while let Some(hint) = hints.pop_front() {
+        if hint.observed_at.elapsed() <= Duration::from_secs(1)
+            && !hint.name.trim().is_empty()
+            && hint.name != default_source_app()
+        {
+            return Some(hint.name);
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_macos_source_tracker(
+    source_app_hint: Arc<Mutex<VecDeque<SourceAppHint>>>,
+    stop: Arc<AtomicBool>,
+) -> thread::JoinHandle<()> {
+    thread::Builder::new()
+        .name("macos-source-tracker".to_string())
+        .spawn(move || {
+            use objc2::{ClassType, msg_send, rc};
+            use objc2_app_kit::NSPasteboard;
+
+            #[link(name = "AppKit", kind = "framework")]
+            unsafe extern "C" {}
+
+            let pasteboard: Option<rc::Retained<NSPasteboard>> =
+                unsafe { msg_send![NSPasteboard::class(), generalPasteboard] };
+            let Some(pasteboard) = pasteboard else {
+                return;
+            };
+
+            let mut previous_count: isize = pasteboard.changeCount();
+            let mut previous_frontmost = source_app_name();
+            while !stop.load(Ordering::Relaxed) {
+                let current_count: isize = pasteboard.changeCount();
+                let current_frontmost = source_app_name();
+                if current_count != previous_count {
+                    previous_count = current_count;
+                    if let Ok(mut hints) = source_app_hint.lock() {
+                        hints.push_back(SourceAppHint {
+                            // Use the frontmost app observed in the previous
+                            // polling turn. If the user copied and switched
+                            // windows between turns, this preserves the app
+                            // that was active when the pasteboard changed.
+                            name: previous_frontmost.clone(),
+                            observed_at: Instant::now(),
+                        });
+                        while hints.len() > 32 {
+                            hints.pop_front();
+                        }
+                    }
+                }
+                previous_frontmost = current_frontmost;
+                thread::sleep(Duration::from_millis(5));
+            }
+        })
+        .expect("无法创建 macOS 来源应用采样线程")
 }
 
 #[cfg(target_os = "windows")]
@@ -2630,6 +2718,7 @@ fn spawn_clipboard_monitor(app: AppHandle, state: RuntimeState) {
                 "starting",
                 "正在初始化系统剪贴板监听。",
             );
+            let source_app_hint = Arc::new(Mutex::new(VecDeque::new()));
             let mut monitor = match Master::new(ClipboardMonitor {
                 app: app.clone(),
                 notification_settings: state.notification_settings.clone(),
@@ -2637,6 +2726,7 @@ fn spawn_clipboard_monitor(app: AppHandle, state: RuntimeState) {
                 monitor_status: state.monitor_status.clone(),
                 history_lock: state.history_lock.clone(),
                 suppressed_entries: state.suppressed_entries.clone(),
+                source_app_hint: source_app_hint.clone(),
             }) {
                 Ok(monitor) => monitor,
                 Err(error) => {
@@ -2661,9 +2751,23 @@ fn spawn_clipboard_monitor(app: AppHandle, state: RuntimeState) {
             if let Ok(mut current) = state.monitor_shutdown.lock() {
                 *current = Some((generation, shutdown));
             }
+
+            #[cfg(target_os = "macos")]
+            let source_tracker_stop = Arc::new(AtomicBool::new(false));
+            #[cfg(target_os = "macos")]
+            let source_tracker =
+                spawn_macos_source_tracker(source_app_hint, source_tracker_stop.clone());
+
             update_monitor_status(&app, &state.monitor_status, "running", "剪贴板监听已启动。");
 
             let result = monitor.run();
+
+            #[cfg(target_os = "macos")]
+            {
+                source_tracker_stop.store(true, Ordering::Relaxed);
+                let _ = source_tracker.join();
+            }
+
             if let Ok(mut current) = state.monitor_shutdown.lock()
                 && current
                     .as_ref()
@@ -2875,18 +2979,20 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone, Utc};
+    use std::collections::VecDeque;
     use std::path::Path;
-    use std::sync::{Arc, RwLock};
+    use std::sync::{Arc, Mutex, RwLock};
 
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
-        build_toast_payload, classify_text, content_entry_id, decode_image_buffers, file_name,
-        has_meaningful_clipboard_text, history_entry_from_snapshot, history_entry_matches_snapshot,
-        is_email_like, is_existing_secure_item_error, is_image_format, is_image_path,
-        is_missing_secure_item_error, is_protected_history_entry, is_sensitive_text,
-        is_single_image_file, normalize_cleanup_schedule, normalize_file_path, normalize_history,
-        normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
-        sanitize_source_app, sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
+        SourceAppHint, build_toast_payload, classify_text, content_entry_id, decode_image_buffers,
+        file_name, has_meaningful_clipboard_text, history_entry_from_snapshot,
+        history_entry_matches_snapshot, is_email_like, is_existing_secure_item_error,
+        is_image_format, is_image_path, is_missing_secure_item_error, is_protected_history_entry,
+        is_sensitive_text, is_single_image_file, normalize_cleanup_schedule, normalize_file_path,
+        normalize_history, normalize_notification_settings, normalize_position, notification_title,
+        prune_old_entries, sanitize_source_app, sensitive_secret_ref, take_source_app_hint,
+        unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -2907,6 +3013,35 @@ mod tests {
             files: None,
             secret_ref: None,
         }
+    }
+
+    #[test]
+    fn source_app_hints_are_consumed_only_when_fresh() {
+        let hint = Arc::new(Mutex::new(VecDeque::from([SourceAppHint {
+            name: "Finder".to_string(),
+            observed_at: std::time::Instant::now(),
+        }])));
+        assert_eq!(take_source_app_hint(&hint).as_deref(), Some("Finder"));
+        assert!(take_source_app_hint(&hint).is_none());
+
+        let stale = Arc::new(Mutex::new(VecDeque::from([SourceAppHint {
+            name: "Terminal".to_string(),
+            observed_at: std::time::Instant::now() - std::time::Duration::from_secs(2),
+        }])));
+        assert!(take_source_app_hint(&stale).is_none());
+
+        let ordered = Arc::new(Mutex::new(VecDeque::from([
+            SourceAppHint {
+                name: "TextEdit".to_string(),
+                observed_at: std::time::Instant::now(),
+            },
+            SourceAppHint {
+                name: "Terminal".to_string(),
+                observed_at: std::time::Instant::now(),
+            },
+        ])));
+        assert_eq!(take_source_app_hint(&ordered).as_deref(), Some("TextEdit"));
+        assert_eq!(take_source_app_hint(&ordered).as_deref(), Some("Terminal"));
     }
 
     #[test]

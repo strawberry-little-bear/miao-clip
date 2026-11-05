@@ -2443,6 +2443,8 @@ dependencies = [
  "image",
  "keyring",
  "log",
+ "objc2",
+ "objc2-app-kit",
  "serde",
  "serde_json",
  "sha2 0.10.9",
