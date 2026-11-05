@@ -327,6 +327,8 @@ struct ClipboardMonitor {
 struct SourceAppHint {
     name: String,
     observed_at: Instant,
+    #[cfg(target_os = "macos")]
+    change_count: isize,
 }
 
 impl ClipboardHandler for ClipboardMonitor {
@@ -349,18 +351,29 @@ impl ClipboardHandler for ClipboardMonitor {
         if capture_suspended(&self.capture_state) {
             return CallbackResult::Next;
         }
-        // Prefer a source captured alongside the pasteboard change. On macOS
+        // Keep a fallback captured before the pasteboard settles. On macOS
         // the callback can run after the user has already switched windows,
-        // so asking for the frontmost app here is sometimes too late.
-        let source_app =
-            take_source_app_hint(&self.source_app_hint).unwrap_or_else(source_app_name);
+        // so asking for the frontmost app only after the callback is too late.
+        let fallback_source_app = source_app_name();
+        #[cfg(target_os = "macos")]
+        let change_count_before_settle = macos_pasteboard_change_count();
         // macOS may still be writing the pasteboard when changeCount changes.
-        // Read after a short settling period so the event already contains the
-        // new value.
+        // Read after a short settling period so the event already contains
+        // the final value. If another write happened during this wait, use
+        // the source hint for that final change rather than the first queued
+        // hint, which may belong to an internal MiaoClip copy operation.
         thread::sleep(Duration::from_millis(50));
         if capture_suspended(&self.capture_state) {
             return CallbackResult::Next;
         }
+        #[cfg(target_os = "macos")]
+        let change_count_after_settle = macos_pasteboard_change_count();
+        #[cfg(target_os = "macos")]
+        let target_change_count = change_count_after_settle.or(change_count_before_settle);
+        #[cfg(not(target_os = "macos"))]
+        let target_change_count = None;
+        let source_app = take_source_app_hint(&self.source_app_hint, target_change_count)
+            .unwrap_or(fallback_source_app);
         let settings = match self.notification_settings.read() {
             Ok(settings) => settings.clone(),
             Err(_) => return CallbackResult::Next,
@@ -841,14 +854,49 @@ fn macos_frontmost_app_name() -> Option<String> {
     (!name.trim().is_empty()).then_some(name)
 }
 
-fn take_source_app_hint(hint: &Arc<Mutex<VecDeque<SourceAppHint>>>) -> Option<String> {
+#[cfg(target_os = "macos")]
+fn macos_pasteboard_change_count() -> Option<isize> {
+    use objc2::{ClassType, msg_send, rc};
+    use objc2_app_kit::NSPasteboard;
+
+    #[link(name = "AppKit", kind = "framework")]
+    unsafe extern "C" {}
+
+    let pasteboard: Option<rc::Retained<NSPasteboard>> =
+        unsafe { msg_send![NSPasteboard::class(), generalPasteboard] };
+    pasteboard.map(|pasteboard| pasteboard.changeCount())
+}
+
+fn take_source_app_hint(
+    hint: &Arc<Mutex<VecDeque<SourceAppHint>>>,
+    target_change_count: Option<isize>,
+) -> Option<String> {
     let Ok(mut hints) = hint.lock() else {
         return None;
     };
 
-    while let Some(hint) = hints.pop_front() {
-        if hint.observed_at.elapsed() <= Duration::from_secs(1) && is_usable_source_app(&hint.name)
-        {
+    while let Some(front) = hints.front() {
+        if front.observed_at.elapsed() > Duration::from_secs(1) {
+            hints.pop_front();
+            continue;
+        }
+
+        #[cfg(target_os = "macos")]
+        if let Some(target) = target_change_count {
+            if front.change_count < target {
+                // The callback settled on a newer pasteboard value. The
+                // skipped change may be an internal write, so discard its
+                // source hint before looking for the final matching event.
+                hints.pop_front();
+                continue;
+            }
+            if front.change_count > target {
+                return None;
+            }
+        }
+
+        let hint = hints.pop_front()?;
+        if is_usable_source_app(&hint.name) {
             return Some(hint.name);
         }
     }
@@ -891,6 +939,7 @@ fn spawn_macos_source_tracker(
                             // that was active when the pasteboard changed.
                             name: previous_frontmost.clone(),
                             observed_at: Instant::now(),
+                            change_count: current_count,
                         });
                         while hints.len() > 32 {
                             hints.pop_front();
@@ -3042,21 +3091,27 @@ mod tests {
         let hint = Arc::new(Mutex::new(VecDeque::from([SourceAppHint {
             name: "Finder".to_string(),
             observed_at: std::time::Instant::now(),
+            #[cfg(target_os = "macos")]
+            change_count: 1,
         }])));
-        assert_eq!(take_source_app_hint(&hint).as_deref(), Some("Finder"));
-        assert!(take_source_app_hint(&hint).is_none());
+        assert_eq!(take_source_app_hint(&hint, None).as_deref(), Some("Finder"));
+        assert!(take_source_app_hint(&hint, None).is_none());
 
         let stale = Arc::new(Mutex::new(VecDeque::from([SourceAppHint {
             name: "Terminal".to_string(),
             observed_at: std::time::Instant::now() - std::time::Duration::from_secs(2),
+            #[cfg(target_os = "macos")]
+            change_count: 2,
         }])));
-        assert!(take_source_app_hint(&stale).is_none());
+        assert!(take_source_app_hint(&stale, None).is_none());
 
         let locked_screen = Arc::new(Mutex::new(VecDeque::from([SourceAppHint {
             name: "loginwindow".to_string(),
             observed_at: std::time::Instant::now(),
+            #[cfg(target_os = "macos")]
+            change_count: 3,
         }])));
-        assert!(take_source_app_hint(&locked_screen).is_none());
+        assert!(take_source_app_hint(&locked_screen, None).is_none());
 
         assert_eq!(
             normalize_source_app_name("loginwindow".to_string()),
@@ -3071,14 +3126,47 @@ mod tests {
             SourceAppHint {
                 name: "TextEdit".to_string(),
                 observed_at: std::time::Instant::now(),
+                #[cfg(target_os = "macos")]
+                change_count: 4,
             },
             SourceAppHint {
                 name: "Terminal".to_string(),
                 observed_at: std::time::Instant::now(),
+                #[cfg(target_os = "macos")]
+                change_count: 5,
             },
         ])));
-        assert_eq!(take_source_app_hint(&ordered).as_deref(), Some("TextEdit"));
-        assert_eq!(take_source_app_hint(&ordered).as_deref(), Some("Terminal"));
+        assert_eq!(
+            take_source_app_hint(&ordered, None).as_deref(),
+            Some("TextEdit")
+        );
+        assert_eq!(
+            take_source_app_hint(&ordered, None).as_deref(),
+            Some("Terminal")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn source_app_hint_selects_the_settled_pasteboard_change() {
+        let hints = Arc::new(Mutex::new(VecDeque::from([
+            SourceAppHint {
+                name: "妙夹".to_string(),
+                observed_at: std::time::Instant::now(),
+                change_count: 10,
+            },
+            SourceAppHint {
+                name: "Safari".to_string(),
+                observed_at: std::time::Instant::now(),
+                change_count: 11,
+            },
+        ])));
+
+        assert_eq!(
+            take_source_app_hint(&hints, Some(11)).as_deref(),
+            Some("Safari")
+        );
+        assert!(take_source_app_hint(&hints, Some(11)).is_none());
     }
 
     #[test]
