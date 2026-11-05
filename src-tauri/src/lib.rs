@@ -529,6 +529,10 @@ fn is_image_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn is_single_image_file(files: &[String]) -> bool {
+    files.len() == 1 && is_image_path(Path::new(&files[0]))
+}
+
 fn unavailable_image_snapshot(path: &Path) -> ClipboardSnapshot {
     let path_string = path.to_string_lossy().into_owned();
     let name = file_name(&path_string);
@@ -1862,8 +1866,11 @@ fn read_clipboard_snapshot(
             && !raw_files.is_empty()
         {
             let files = normalize_file_paths(raw_files);
+            if is_single_image_file(&files) && !settings.capture_images {
+                return Ok(ignored_capture_snapshot("图片捕获已关闭"));
+            }
             if settings.capture_images
-                && files.len() == 1
+                && is_single_image_file(&files)
                 && let Some(snapshot) = image_file_to_snapshot(app, Path::new(&files[0]))
             {
                 let mut snapshot = snapshot;
@@ -2806,9 +2813,10 @@ mod tests {
         build_toast_payload, classify_text, content_entry_id, decode_image_buffers, file_name,
         has_meaningful_clipboard_text, history_entry_from_snapshot, history_entry_matches_snapshot,
         is_email_like, is_existing_secure_item_error, is_image_format, is_image_path,
-        is_sensitive_text, normalize_cleanup_schedule, normalize_file_path, normalize_history,
-        normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
-        sanitize_source_app, sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
+        is_sensitive_text, is_single_image_file, normalize_cleanup_schedule, normalize_file_path,
+        normalize_history, normalize_notification_settings, normalize_position, notification_title,
+        prune_old_entries, sanitize_source_app, sensitive_secret_ref, unavailable_image_snapshot,
+        valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3412,6 +3420,17 @@ mod tests {
         assert!(is_image_path(Path::new("/tmp/icon.ico")));
         assert!(is_image_path(Path::new("/tmp/vector.svg")));
         assert!(!is_image_path(Path::new("/tmp/archive.zip")));
+    }
+
+    #[test]
+    fn does_not_fallback_known_image_files_to_file_records() {
+        assert!(is_single_image_file(&["/tmp/photo.jpg".to_string()]));
+        assert!(is_single_image_file(&["/tmp/photo.PNG".to_string()]));
+        assert!(!is_single_image_file(&[
+            "/tmp/photo.jpg".to_string(),
+            "/tmp/another.jpg".to_string(),
+        ]));
+        assert!(!is_single_image_file(&["/tmp/archive.zip".to_string()]));
     }
 
     #[test]
