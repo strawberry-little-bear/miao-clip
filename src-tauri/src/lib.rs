@@ -641,13 +641,13 @@ fn capability(available: bool, detail: impl Into<String>) -> CapabilityStatus {
 fn source_app_capability() -> CapabilityStatus {
     #[cfg(target_os = "macos")]
     {
-        let available = Path::new("/usr/bin/osascript").exists();
+        let script_fallback_available = Path::new("/usr/bin/osascript").exists();
         return capability(
-            available,
-            if available {
-                "使用 macOS 前台应用识别。"
+            true,
+            if script_fallback_available {
+                "使用 macOS AppKit 前台应用识别，osascript 作为回退。"
             } else {
-                "缺少 osascript，来源应用将显示为未知应用。"
+                "使用 macOS AppKit 前台应用识别；脚本回退不可用。"
             },
         );
     }
