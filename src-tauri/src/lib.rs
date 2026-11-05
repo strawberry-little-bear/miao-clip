@@ -113,6 +113,9 @@ fn is_usable_source_app(name: &str) -> bool {
         && !matches!(
             normalized.as_str(),
             "未知应用"
+                | "miao-clip"
+                | "miaoclip"
+                | "妙夹"
                 | "loginwindow"
                 | "登录窗口"
                 | "windowserver"
@@ -3189,6 +3192,7 @@ mod tests {
         assert_eq!(stable_source_app_name("Safari", "Safari"), "Safari");
         assert_eq!(stable_source_app_name("Safari", "Terminal"), "未知应用");
         assert_eq!(stable_source_app_name("未知应用", "Safari"), "未知应用");
+        assert_eq!(stable_source_app_name("MiaoClip", "MiaoClip"), "未知应用");
         assert_eq!(
             stable_source_app_name("loginwindow", "loginwindow"),
             "未知应用"
