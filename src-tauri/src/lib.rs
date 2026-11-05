@@ -107,6 +107,30 @@ fn default_source_app() -> String {
     "未知应用".to_string()
 }
 
+fn is_usable_source_app(name: &str) -> bool {
+    let normalized = name.trim().to_ascii_lowercase();
+    !normalized.is_empty()
+        && !matches!(
+            normalized.as_str(),
+            "未知应用"
+                | "loginwindow"
+                | "登录窗口"
+                | "windowserver"
+                | "window server"
+                | "systemuiserver"
+                | "system events"
+        )
+}
+
+fn normalize_source_app_name(name: String) -> String {
+    let trimmed = name.trim().to_string();
+    if is_usable_source_app(&trimmed) {
+        trimmed
+    } else {
+        default_source_app()
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct HistoryFile {
     version: u8,
@@ -780,7 +804,7 @@ fn source_app_name() -> String {
         {
             let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if output.status.success() && !name.is_empty() {
-                return name;
+                return normalize_source_app_name(name);
             }
         }
     }
@@ -793,7 +817,7 @@ fn source_app_name() -> String {
         {
             let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if output.status.success() && !name.is_empty() {
-                return name;
+                return normalize_source_app_name(name);
             }
         }
     }
@@ -801,7 +825,7 @@ fn source_app_name() -> String {
     #[cfg(target_os = "windows")]
     {
         if let Some(name) = windows_foreground_app_name() {
-            return name;
+            return normalize_source_app_name(name);
         }
     }
 
@@ -823,9 +847,7 @@ fn take_source_app_hint(hint: &Arc<Mutex<VecDeque<SourceAppHint>>>) -> Option<St
     };
 
     while let Some(hint) = hints.pop_front() {
-        if hint.observed_at.elapsed() <= Duration::from_secs(1)
-            && !hint.name.trim().is_empty()
-            && hint.name != default_source_app()
+        if hint.observed_at.elapsed() <= Duration::from_secs(1) && is_usable_source_app(&hint.name)
         {
             return Some(hint.name);
         }
@@ -2990,9 +3012,9 @@ mod tests {
         history_entry_matches_snapshot, is_email_like, is_existing_secure_item_error,
         is_image_format, is_image_path, is_missing_secure_item_error, is_protected_history_entry,
         is_sensitive_text, is_single_image_file, normalize_cleanup_schedule, normalize_file_path,
-        normalize_history, normalize_notification_settings, normalize_position, notification_title,
-        prune_old_entries, sanitize_source_app, sensitive_secret_ref, take_source_app_hint,
-        unavailable_image_snapshot, valid_image_id,
+        normalize_history, normalize_notification_settings, normalize_position,
+        normalize_source_app_name, notification_title, prune_old_entries, sanitize_source_app,
+        sensitive_secret_ref, take_source_app_hint, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3029,6 +3051,21 @@ mod tests {
             observed_at: std::time::Instant::now() - std::time::Duration::from_secs(2),
         }])));
         assert!(take_source_app_hint(&stale).is_none());
+
+        let locked_screen = Arc::new(Mutex::new(VecDeque::from([SourceAppHint {
+            name: "loginwindow".to_string(),
+            observed_at: std::time::Instant::now(),
+        }])));
+        assert!(take_source_app_hint(&locked_screen).is_none());
+
+        assert_eq!(
+            normalize_source_app_name("loginwindow".to_string()),
+            "未知应用"
+        );
+        assert_eq!(
+            normalize_source_app_name("TextEdit".to_string()),
+            "TextEdit"
+        );
 
         let ordered = Arc::new(Mutex::new(VecDeque::from([
             SourceAppHint {
