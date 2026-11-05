@@ -799,11 +799,12 @@ fn windows_foreground_app_name() -> Option<String> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::DataExchange::GetClipboardOwner;
     use windows_sys::Win32::System::Threading::{
         OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetClipboardOwner, GetForegroundWindow, GetWindowThreadProcessId,
+        GetForegroundWindow, GetWindowThreadProcessId,
     };
 
     // The clipboard watcher runs in a background thread. Querying the
