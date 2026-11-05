@@ -1025,6 +1025,14 @@ fn is_existing_secure_item_error(error: &dyn std::fmt::Display) -> bool {
         .contains("already exists")
 }
 
+fn is_missing_secure_item_error(error: &dyn std::fmt::Display) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("not found")
+        || message.contains("no such item")
+        || message.contains("does not exist")
+        || message.contains("could not be found")
+}
+
 fn store_sensitive_secret(secret_ref: &str, text: &str) -> Result<(), String> {
     let _guard = sensitive_store_lock()?;
     let entry = sensitive_keyring_entry(secret_ref)?;
@@ -1048,9 +1056,13 @@ fn store_sensitive_secret(secret_ref: &str, text: &str) -> Result<(), String> {
             {
                 return Ok(());
             }
-            entry
-                .delete_credential()
-                .map_err(|delete_error| format!("无法修复系统安全存储条目：{delete_error}"))?;
+            match entry.delete_credential() {
+                Ok(()) => {}
+                Err(delete_error) if is_missing_secure_item_error(&delete_error) => {}
+                Err(delete_error) => {
+                    return Err(format!("无法修复系统安全存储条目：{delete_error}"));
+                }
+            }
             entry
                 .set_password(text)
                 .map_err(|set_error| format!("无法写入系统安全存储：{set_error}"))
@@ -1071,12 +1083,16 @@ fn delete_sensitive_secret(secret_ref: &str) {
         log::warn!("无法锁定系统安全存储，跳过敏感剪贴板内容清理");
         return;
     };
-    match sensitive_keyring_entry(secret_ref).and_then(|entry| {
-        entry
-            .delete_credential()
-            .map_err(|error| format!("无法删除系统安全存储内容：{error}"))
-    }) {
+    let entry = match sensitive_keyring_entry(secret_ref) {
+        Ok(entry) => entry,
+        Err(error) => {
+            log::warn!("清理敏感剪贴板内容失败：{error}");
+            return;
+        }
+    };
+    match entry.delete_credential() {
         Ok(()) => {}
+        Err(error) if is_missing_secure_item_error(&error) => {}
         Err(error) => log::warn!("清理敏感剪贴板内容失败：{error}"),
     }
 }
@@ -1866,14 +1882,12 @@ fn read_clipboard_snapshot(
             && !raw_files.is_empty()
         {
             let files = normalize_file_paths(raw_files);
-            if is_single_image_file(&files) && !settings.capture_images {
-                return Ok(ignored_capture_snapshot("图片捕获已关闭"));
-            }
-            if settings.capture_images
-                && is_single_image_file(&files)
-                && let Some(snapshot) = image_file_to_snapshot(app, Path::new(&files[0]))
-            {
-                let mut snapshot = snapshot;
+            if is_single_image_file(&files) {
+                if !settings.capture_images {
+                    return Ok(ignored_capture_snapshot("图片捕获已关闭"));
+                }
+                let mut snapshot = image_file_to_snapshot(app, Path::new(&files[0]))
+                    .unwrap_or_else(|| unavailable_image_snapshot(Path::new(&files[0])));
                 snapshot.source_app = source_app_name();
                 return Ok(snapshot);
             }
@@ -2813,10 +2827,10 @@ mod tests {
         build_toast_payload, classify_text, content_entry_id, decode_image_buffers, file_name,
         has_meaningful_clipboard_text, history_entry_from_snapshot, history_entry_matches_snapshot,
         is_email_like, is_existing_secure_item_error, is_image_format, is_image_path,
-        is_sensitive_text, is_single_image_file, normalize_cleanup_schedule, normalize_file_path,
-        normalize_history, normalize_notification_settings, normalize_position, notification_title,
-        prune_old_entries, sanitize_source_app, sensitive_secret_ref, unavailable_image_snapshot,
-        valid_image_id,
+        is_missing_secure_item_error, is_sensitive_text, is_single_image_file,
+        normalize_cleanup_schedule, normalize_file_path, normalize_history,
+        normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
+        sanitize_source_app, sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -2908,6 +2922,19 @@ mod tests {
         ));
         assert!(is_existing_secure_item_error(&"ALREADY EXISTS"));
         assert!(!is_existing_secure_item_error(&"item not found"));
+    }
+
+    #[test]
+    fn recognizes_missing_secure_item_errors_case_insensitively() {
+        assert!(is_missing_secure_item_error(&"The item was not found."));
+        assert!(is_missing_secure_item_error(&"NO SUCH ITEM"));
+        assert!(is_missing_secure_item_error(&"Credential does not exist"));
+        assert!(is_missing_secure_item_error(
+            &"Could not be found in keychain"
+        ));
+        assert!(!is_missing_secure_item_error(
+            &"The specified item already exists."
+        ));
     }
 
     #[test]
