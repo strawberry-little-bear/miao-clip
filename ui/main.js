@@ -174,7 +174,8 @@
     if (!diagnostics) return;
     const monitor = diagnostics.monitor || {};
     const monitorRunning = monitor.state === "running";
-    state.nativeMonitorRunning = monitorRunning;
+    const monitorActive = monitorRunning || monitor.state === "starting";
+    state.nativeMonitorRunning = monitorActive;
     elements.diagnosticPlatformState.textContent = `${diagnostics.platform || "未知平台"} · ${diagnostics.architecture || "未知架构"}`;
     elements.diagnosticPlatformState.dataset.state = "ok";
     elements.diagnosticPlatformDetail.textContent = "当前应用运行环境。";
@@ -1312,7 +1313,7 @@
       await listen("clipboard-monitor-status", ({ payload }) => {
         const status = payload || {};
         const monitorState = status.state || "error";
-        state.nativeMonitorRunning = monitorState === "running";
+        state.nativeMonitorRunning = monitorState === "running" || monitorState === "starting";
         setMonitorStatus(
           monitorState === "running" ? "listening" : monitorState === "starting" ? "starting" : "error",
           monitorState === "running" ? "正在监听" : monitorState === "starting" ? "正在启动监听" : "监听暂不可用",

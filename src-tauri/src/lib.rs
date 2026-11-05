@@ -297,6 +297,21 @@ struct ClipboardMonitor {
 }
 
 impl ClipboardHandler for ClipboardMonitor {
+    fn sleep_interval(&self) -> Duration {
+        // clipboard-master polls the macOS pasteboard. Keep this short so a
+        // user switching windows immediately after copying does not change
+        // the foreground app before we capture the source snapshot.
+        #[cfg(target_os = "macos")]
+        {
+            Duration::from_millis(50)
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            Duration::from_millis(100)
+        }
+    }
+
     fn on_clipboard_change(&mut self) -> CallbackResult {
         if capture_suspended(&self.capture_state) {
             return CallbackResult::Next;
@@ -788,14 +803,25 @@ fn windows_foreground_app_name() -> Option<String> {
         OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowThreadProcessId,
+        GetClipboardOwner, GetForegroundWindow, GetWindowThreadProcessId,
     };
 
     // The clipboard watcher runs in a background thread. Querying the
     // foreground window at capture time gives us the application that owned
     // the clipboard before MiaoClip handled the change.
     unsafe {
-        let window = GetForegroundWindow();
+        // The clipboard owner is tied to the write operation and is more
+        // reliable than the foreground window after the user switches apps.
+        // Some providers do not expose an owner, so retain the foreground
+        // window as a fallback.
+        let window = {
+            let owner = GetClipboardOwner();
+            if owner.is_null() {
+                GetForegroundWindow()
+            } else {
+                owner
+            }
+        };
         if window.is_null() {
             return None;
         }
