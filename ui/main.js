@@ -450,7 +450,7 @@
   function classifyText(text, sensitivity = "normal") {
     const value = text.trim();
     const lower = value.toLowerCase();
-    if (sensitivity === "sensitive" || /(?:password|passwd|api[_-]?key|token|secret|private[_-]?key)\s*[:=：]/i.test(value) || /^(?:ghp|github_pat|sk-|xox[baprs]-|akia)[a-z0-9_-]+$/i.test(value)) return "password";
+    if (sensitivity === "sensitive" || /(?:password|passwd|api[_-]?key|token|secret|private[_-]?key|密码|口令|密钥|银行卡号|身份证号)\s*[:=：]/i.test(value) || /^(?:ghp|github_pat|sk-|xox[baprs]-|akia)[a-z0-9_-]+$/i.test(value)) return "password";
     if (/^(?:https?|ftp):\/\/\S+$/i.test(value) || /^www\.\S+$/i.test(value)) return "url";
     if (/^(?:username|user|account|账号|用户名)\s*[:=]/i.test(value) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return "account";
     if (lower.startsWith("mailto:")) return "account";

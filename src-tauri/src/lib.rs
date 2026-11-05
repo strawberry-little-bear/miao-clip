@@ -1392,11 +1392,14 @@ fn history_entry_matches_snapshot(entry: &HistoryEntry, snapshot: &ClipboardSnap
     }
 }
 
+fn is_protected_history_entry(entry: &HistoryEntry) -> bool {
+    entry.category == "password" || entry.secret_ref.is_some() || is_sensitive_text(&entry.text)
+}
+
 fn protect_sensitive_entries(entries: &mut [HistoryEntry]) -> Result<bool, String> {
     let mut changed = false;
     for entry in entries {
-        let sensitive = entry.category == "password" || is_sensitive_text(&entry.text);
-        if !sensitive {
+        if !is_protected_history_entry(entry) {
             continue;
         }
 
@@ -2123,7 +2126,7 @@ fn reveal_sensitive_entry(
         .into_iter()
         .find(|entry| entry.id == entry_id)
         .ok_or_else(|| "这条敏感记录已不存在。".to_string())?;
-    if entry.category != "password" {
+    if !is_protected_history_entry(&entry) {
         return Err("这条记录不是敏感内容。".to_string());
     }
     let secret_ref = entry
@@ -2841,8 +2844,8 @@ mod tests {
         build_toast_payload, classify_text, content_entry_id, decode_image_buffers, file_name,
         has_meaningful_clipboard_text, history_entry_from_snapshot, history_entry_matches_snapshot,
         is_email_like, is_existing_secure_item_error, is_image_format, is_image_path,
-        is_missing_secure_item_error, is_sensitive_text, is_single_image_file,
-        normalize_cleanup_schedule, normalize_file_path, normalize_history,
+        is_missing_secure_item_error, is_protected_history_entry, is_sensitive_text,
+        is_single_image_file, normalize_cleanup_schedule, normalize_file_path, normalize_history,
         normalize_notification_settings, normalize_position, notification_title, prune_old_entries,
         sanitize_source_app, sensitive_secret_ref, unavailable_image_snapshot, valid_image_id,
     };
@@ -2963,6 +2966,21 @@ mod tests {
         assert_eq!(entry.category, "password");
         assert_eq!(entry.title, "敏感信息");
         assert_eq!(entry.secret_ref, None);
+    }
+
+    #[test]
+    fn protected_history_detection_accepts_legacy_sensitive_metadata() {
+        let mut legacy = entry("legacy-key", "密钥：windows-secret");
+        assert!(is_protected_history_entry(&legacy));
+
+        legacy.text.clear();
+        legacy.secret_ref = Some(sensitive_secret_ref(&legacy.id));
+        legacy.category = "text".to_string();
+        assert!(is_protected_history_entry(&legacy));
+
+        legacy.secret_ref = None;
+        legacy.category = "text".to_string();
+        assert!(!is_protected_history_entry(&legacy));
     }
 
     #[test]
