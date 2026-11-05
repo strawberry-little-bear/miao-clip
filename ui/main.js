@@ -1540,7 +1540,7 @@
     elements.launchAtLogin.disabled = true;
     try {
       await invoke("set_autostart_enabled", { enabled });
-      elements.settingsNote.textContent = enabled ? "妙夹将在开机后自动启动。" : "已关闭开机后自动启动。";
+      elements.settingsNote.textContent = enabled ? "妙夹将在开机时自动启动。" : "已关闭开机启动。";
     } catch (error) {
       elements.launchAtLogin.checked = !enabled;
       elements.settingsNote.textContent = `开机启动设置失败：${error}`;
