@@ -131,6 +131,16 @@ fn normalize_source_app_name(name: String) -> String {
     }
 }
 
+fn stable_source_app_name(previous: &str, current: &str) -> String {
+    let previous = normalize_source_app_name(previous.to_string());
+    let current = normalize_source_app_name(current.to_string());
+    if previous == current && is_usable_source_app(&current) {
+        current
+    } else {
+        default_source_app()
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct HistoryFile {
     version: u8,
@@ -965,11 +975,13 @@ fn spawn_macos_source_tracker(
                     previous_count = current_count;
                     if let Ok(mut hints) = source_app_hint.lock() {
                         hints.push_back(SourceAppHint {
-                            // Use the frontmost app observed in the previous
-                            // polling turn. If the user copied and switched
-                            // windows between turns, this preserves the app
-                            // that was active when the pasteboard changed.
-                            name: previous_frontmost.clone(),
+                            // The source is reliable only while the
+                            // frontmost app is stable across the observed
+                            // pasteboard change. If the app changed between
+                            // samples, either side could have performed the
+                            // copy, so keep the attribution unknown instead
+                            // of assigning it to the wrong app.
+                            name: stable_source_app_name(&previous_frontmost, &current_frontmost),
                             observed_at: Instant::now(),
                             change_count: current_count,
                         });
@@ -3095,7 +3107,8 @@ mod tests {
         is_sensitive_text, is_single_image_file, normalize_cleanup_schedule, normalize_file_path,
         normalize_history, normalize_notification_settings, normalize_position,
         normalize_source_app_name, notification_title, prune_old_entries, sanitize_source_app,
-        sensitive_secret_ref, take_source_app_hint, unavailable_image_snapshot, valid_image_id,
+        sensitive_secret_ref, stable_source_app_name, take_source_app_hint,
+        unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3175,6 +3188,16 @@ mod tests {
         assert_eq!(
             take_source_app_hint(&ordered, None).as_deref(),
             Some("Terminal")
+        );
+    }
+
+    #[test]
+    fn source_app_is_unknown_when_the_frontmost_app_changes_during_sampling() {
+        assert_eq!(stable_source_app_name("Safari", "Safari"), "Safari");
+        assert_eq!(stable_source_app_name("Safari", "Terminal"), "未知应用");
+        assert_eq!(
+            stable_source_app_name("loginwindow", "loginwindow"),
+            "未知应用"
         );
     }
 
