@@ -354,6 +354,7 @@ impl ClipboardHandler for ClipboardMonitor {
         // Keep a fallback captured before the pasteboard settles. On macOS
         // the callback can run after the user has already switched windows,
         // so asking for the frontmost app only after the callback is too late.
+        #[cfg(not(target_os = "macos"))]
         let fallback_source_app = source_app_name();
         #[cfg(target_os = "macos")]
         let change_count_before_settle = macos_pasteboard_change_count();
@@ -370,10 +371,21 @@ impl ClipboardHandler for ClipboardMonitor {
         let change_count_after_settle = macos_pasteboard_change_count();
         #[cfg(target_os = "macos")]
         let target_change_count = change_count_after_settle.or(change_count_before_settle);
+        #[cfg(target_os = "macos")]
+        let source_app = match target_change_count {
+            Some(change_count) => {
+                // The source tracker and clipboard-master poll independently.
+                // Give the tracker a short window to publish the matching
+                // change before falling back. A wrong app name is worse than
+                // an explicit unknown source in the history.
+                take_settled_source_app_hint(&self.source_app_hint, change_count)
+                    .unwrap_or_else(default_source_app)
+            }
+            None => default_source_app(),
+        };
         #[cfg(not(target_os = "macos"))]
-        let target_change_count = None;
-        let source_app = take_source_app_hint(&self.source_app_hint, target_change_count)
-            .unwrap_or(fallback_source_app);
+        let source_app =
+            take_source_app_hint(&self.source_app_hint, None).unwrap_or(fallback_source_app);
         let settings = match self.notification_settings.read() {
             Ok(settings) => settings.clone(),
             Err(_) => return CallbackResult::Next,
@@ -898,6 +910,26 @@ fn take_source_app_hint(
         let hint = hints.pop_front()?;
         if is_usable_source_app(&hint.name) {
             return Some(hint.name);
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn take_settled_source_app_hint(
+    hint: &Arc<Mutex<VecDeque<SourceAppHint>>>,
+    target_change_count: isize,
+) -> Option<String> {
+    const ATTEMPTS: usize = 8;
+    const RETRY_INTERVAL: Duration = Duration::from_millis(5);
+
+    for attempt in 0..ATTEMPTS {
+        if let Some(source_app) = take_source_app_hint(hint, Some(target_change_count)) {
+            return Some(source_app);
+        }
+        if attempt + 1 < ATTEMPTS {
+            thread::sleep(RETRY_INTERVAL);
         }
     }
 
@@ -3167,6 +3199,22 @@ mod tests {
             Some("Safari")
         );
         assert!(take_source_app_hint(&hints, Some(11)).is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn source_app_hint_does_not_use_a_newer_change_for_an_older_callback() {
+        let hints = Arc::new(Mutex::new(VecDeque::from([SourceAppHint {
+            name: "Safari".to_string(),
+            observed_at: std::time::Instant::now(),
+            change_count: 12,
+        }])));
+
+        assert!(take_source_app_hint(&hints, Some(11)).is_none());
+        assert_eq!(
+            take_source_app_hint(&hints, Some(12)).as_deref(),
+            Some("Safari")
+        );
     }
 
     #[test]
