@@ -794,7 +794,7 @@ fn source_app_name() -> String {
     #[cfg(target_os = "macos")]
     {
         if let Some(name) = macos_frontmost_app_name() {
-            return name;
+            return normalize_source_app_name(name);
         }
 
         let script = "tell application \"System Events\" to get name of first application process whose frontmost is true";
