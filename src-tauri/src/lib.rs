@@ -697,7 +697,7 @@ fn source_app_capability() -> CapabilityStatus {
 
     #[cfg(target_os = "windows")]
     {
-        return capability(true, "使用 Windows 前台窗口和进程信息识别来源应用。");
+        return capability(true, "使用 Windows 剪贴板所有者和进程信息识别来源应用。");
     }
 
     #[cfg(target_os = "linux")]
