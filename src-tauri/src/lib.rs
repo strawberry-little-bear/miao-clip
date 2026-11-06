@@ -1498,7 +1498,10 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
     let mut seen = HashSet::new();
     let mut normalized = Vec::with_capacity(entries.len().min(MAX_HISTORY_ENTRIES));
 
-    for entry in entries {
+    for mut entry in entries {
+        // Keep legacy and imported records consistent with live captures.
+        // Internal macOS processes and the app itself are not useful sources.
+        entry.source_app = normalize_source_app_name(std::mem::take(&mut entry.source_app));
         if entry.text.trim().is_empty()
             && entry.image_id.is_none()
             && entry.files.is_none()
@@ -1598,7 +1601,7 @@ fn history_entry_from_snapshot(snapshot: &ClipboardSnapshot) -> HistoryEntry {
         title,
         kind,
         time: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
-        source_app: snapshot.source_app.clone(),
+        source_app: normalize_source_app_name(snapshot.source_app.clone()),
         category,
         pinned: false,
         tags: Vec::new(),
@@ -3210,6 +3213,60 @@ mod tests {
         assert_eq!(
             stable_source_app_name("loginwindow", "loginwindow"),
             "未知应用"
+        );
+    }
+
+    #[test]
+    fn normalizes_source_apps_when_history_is_loaded() {
+        let entries = normalize_history(vec![
+            {
+                let mut entry = entry("internal", "copied");
+                entry.source_app = "MiaoClip".to_string();
+                entry
+            },
+            {
+                let mut entry = entry("system", "copied elsewhere");
+                entry.source_app = " loginwindow ".to_string();
+                entry
+            },
+            {
+                let mut entry = entry("real", "copied from editor");
+                entry.source_app = " TextEdit ".to_string();
+                entry
+            },
+        ]);
+
+        assert_eq!(entries[0].source_app, "未知应用");
+        assert_eq!(entries[1].source_app, "未知应用");
+        assert_eq!(entries[2].source_app, "TextEdit");
+    }
+
+    #[test]
+    fn normalizes_source_app_when_creating_history_entry() {
+        let mut snapshot = ClipboardSnapshot {
+            kind: "text",
+            sensitivity: "normal",
+            text: Some("copied".to_string()),
+            preview: "copied".to_string(),
+            length: 6,
+            entry_id: "source-normalization-test".to_string(),
+            source_app: "MiaoClip".to_string(),
+            persisted: false,
+            image_id: None,
+            image_width: None,
+            image_height: None,
+            files: None,
+            toast: None,
+        };
+
+        assert_eq!(
+            history_entry_from_snapshot(&snapshot).source_app,
+            "未知应用"
+        );
+        snapshot.source_app = " TextEdit ".to_string();
+        assert_eq!(
+            history_entry_from_snapshot(&snapshot).source_app,
+            "TextEdit"
         );
     }
 
