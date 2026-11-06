@@ -520,11 +520,14 @@
     const nativeCategory = ["text", "url", "account", "password"].includes(entry.category)
       ? entry.category
       : null;
-    // A legacy entry may still say "text" even though its plaintext matches
-    // a sensitive pattern. Prefer the detected protected category so the
-    // reveal flow remains available while the Rust side migrates the record.
+    const protectedByReference = Boolean(entry.secret_ref);
+    // A legacy entry may still say "text" after its plaintext was removed
+    // from the history file. The keyring reference is authoritative in that
+    // case, so keep the reveal and copy controls available during migration.
     const category = mediaCategory
-      || (detectedCategory === "password" ? "password" : nativeCategory || detectedCategory);
+      || (protectedByReference || detectedCategory === "password"
+        ? "password"
+        : nativeCategory || detectedCategory);
     const kind = mediaCategory === "image" ? "图片" : mediaCategory === "file" ? "文件" : entry.kind;
     return {
       ...entry,
