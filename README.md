@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：通过**：[Build MiaoClip · `af76579`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/42217553428) 已于 **2026 年 11 月 6 日（北京时间）**完成，6 个 job 全部成功，包含 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，以及 Apple Silicon、Intel Mac 和 Windows 安装包构建。日志中没有实际构建错误或测试失败；当前仅保留 GitHub Actions 运行环境的 Node.js 20 弃用提示。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)验证。
+- **CI：通过**：[Build MiaoClip · `320a4f9`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/42237369408) 已于 **2026 年 11 月 6 日（北京时间）**完成，6 个 job 全部成功，包含 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，以及 Apple Silicon、Intel Mac 和 Windows 安装包构建。日志中没有实际构建错误或测试失败；当前仅保留 GitHub Actions 运行环境的 Node.js 20 弃用提示。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)验证。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
 - **macOS Apple Silicon：本机后台捕获部分验收通过**：已确认普通文本、前导空白与换行、中文、Emoji、完整日期时间、来源应用、重复内容去重、纯空白过滤、图片捕获、文件捕获、文件名展示、敏感内容脱敏与 Keychain 存储、暂停监听、隐私模式、历史持久化和监听恢复；本轮还修复了 Finder 同时提供文件 URL 和图标图像时把普通文件误记为图片的问题。通知视觉内容与点击回跳、敏感内容查看 / 再次复制和开机启动仍需逐项验收。来源应用识别是尽力而为：通过脚本或系统命令写入剪贴板时，macOS 可能只能看到当时的前台应用，不能把该来源当作审计级事实。
 - **macOS Intel：构建已验证，设备验收待完成**：需要在 Intel Mac 上补做完整剪贴板、通知和开机启动验收。
