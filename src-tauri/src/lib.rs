@@ -144,6 +144,18 @@ fn stable_source_app_name(previous: &str, current: &str) -> String {
     }
 }
 
+fn source_app_after_sampling(
+    first_frontmost: &str,
+    current_frontmost: &str,
+    frontmost_was_stable: bool,
+) -> String {
+    if frontmost_was_stable {
+        stable_source_app_name(first_frontmost, current_frontmost)
+    } else {
+        default_source_app()
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct HistoryFile {
     version: u8,
@@ -972,6 +984,8 @@ fn spawn_macos_source_tracker(
     source_app_hint: Arc<Mutex<VecDeque<SourceAppHint>>>,
     stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
+    const MIN_FRONTMOST_STABILITY: Duration = Duration::from_millis(40);
+
     thread::Builder::new()
         .name("macos-source-tracker".to_string())
         .spawn(move || {
@@ -988,7 +1002,11 @@ fn spawn_macos_source_tracker(
             };
 
             let mut previous_count: isize = pasteboard.changeCount();
-            let mut pending_change: Option<(isize, String)> = None;
+            let mut last_frontmost = macos_frontmost_app_name()
+                .map(normalize_source_app_name)
+                .unwrap_or_else(default_source_app);
+            let mut frontmost_stable_since = Instant::now();
+            let mut pending_change: Option<(isize, String, bool)> = None;
             // The event tracker must stay non-blocking. `source_app_name()`
             // can invoke osascript when AppKit cannot resolve the frontmost
             // app, and that process launch is slow enough to misalign a
@@ -996,21 +1014,26 @@ fn spawn_macos_source_tracker(
             // Keep the fallback for manual reads, but use only the fast
             // AppKit sample while pairing native clipboard events.
             while !stop.load(Ordering::Relaxed) {
+                let observed_at = Instant::now();
                 let current_count: isize = pasteboard.changeCount();
                 let current_frontmost = macos_frontmost_app_name()
                     .map(normalize_source_app_name)
                     .unwrap_or_else(default_source_app);
+                if current_frontmost != last_frontmost {
+                    last_frontmost = current_frontmost.clone();
+                    frontmost_stable_since = observed_at;
+                }
                 if current_count != previous_count {
                     // The first sample only tells us which pasteboard change
                     // happened. Confirm the foreground app on the next
                     // sample so switching into the copying app does not
                     // incorrectly turn an otherwise valid source into an
                     // unknown app.
-                    if let Some((pending_count, _)) = pending_change.take() {
+                    if let Some((pending_count, _, _)) = pending_change.take() {
                         if let Ok(mut hints) = source_app_hint.lock() {
                             hints.push_back(SourceAppHint {
                                 name: default_source_app(),
-                                observed_at: Instant::now(),
+                                observed_at,
                                 change_count: pending_count,
                             });
                             while hints.len() > 32 {
@@ -1019,13 +1042,21 @@ fn spawn_macos_source_tracker(
                         }
                     }
                     previous_count = current_count;
-                    pending_change = Some((current_count, current_frontmost));
-                } else if let Some((change_count, first_frontmost)) = pending_change.take() {
-                    let source_app = stable_source_app_name(&first_frontmost, &current_frontmost);
+                    let frontmost_was_stable = observed_at.duration_since(frontmost_stable_since)
+                        >= MIN_FRONTMOST_STABILITY;
+                    pending_change = Some((current_count, current_frontmost, frontmost_was_stable));
+                } else if let Some((change_count, first_frontmost, frontmost_was_stable)) =
+                    pending_change.take()
+                {
+                    let source_app = source_app_after_sampling(
+                        &first_frontmost,
+                        &current_frontmost,
+                        frontmost_was_stable,
+                    );
                     if let Ok(mut hints) = source_app_hint.lock() {
                         hints.push_back(SourceAppHint {
                             name: source_app,
-                            observed_at: Instant::now(),
+                            observed_at,
                             change_count,
                         });
                         while hints.len() > 32 {
@@ -3144,8 +3175,8 @@ mod tests {
         is_sensitive_text, is_single_image_file, normalize_cleanup_schedule, normalize_file_path,
         normalize_history, normalize_notification_settings, normalize_position,
         normalize_source_app_name, notification_title, prune_old_entries, sanitize_source_app,
-        sensitive_secret_ref, stable_source_app_name, take_source_app_hint,
-        unavailable_image_snapshot, valid_image_id,
+        sensitive_secret_ref, source_app_after_sampling, stable_source_app_name,
+        take_source_app_hint, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3237,6 +3268,18 @@ mod tests {
         assert_eq!(
             stable_source_app_name("loginwindow", "loginwindow"),
             "未知应用"
+        );
+    }
+
+    #[test]
+    fn source_app_is_unknown_when_frontmost_was_not_stable_before_change() {
+        assert_eq!(
+            source_app_after_sampling("Safari", "Safari", false),
+            "未知应用"
+        );
+        assert_eq!(
+            source_app_after_sampling("Safari", "Safari", true),
+            "Safari"
         );
     }
 
