@@ -480,6 +480,12 @@
     return "******";
   }
 
+  function mergeSourceApp(previous, current) {
+    const previousName = String(previous || "未知应用").trim() || "未知应用";
+    const currentName = String(current || "未知应用").trim() || "未知应用";
+    return currentName === "未知应用" ? previousName : currentName;
+  }
+
   function captureMessage(snapshot, entry) {
     const sensitive = snapshot.sensitivity === "sensitive" || entry.category === "password";
     let message;
@@ -1206,7 +1212,16 @@
         : !item.image_id && !item.files && item.text === text;
     const existing = state.entries.find(sameContent);
     const storedEntry = existing
-      ? { ...existing, ...entry, id: entry.id, time: new Date().toISOString(), pinned: existing.pinned }
+      ? {
+        ...existing,
+        ...entry,
+        id: entry.id,
+        time: new Date().toISOString(),
+        pinned: existing.pinned,
+        // A transient attribution failure must not erase a source already
+        // confirmed for this deduplicated history item.
+        source_app: mergeSourceApp(existing.source_app, entry.source_app),
+      }
       : entry;
     state.entries = [storedEntry, ...state.entries.filter((item) => !sameContent(item))].slice(0, 100);
     state.selectedId = storedEntry.id;

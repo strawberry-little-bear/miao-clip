@@ -134,6 +134,16 @@ fn normalize_source_app_name(name: String) -> String {
     }
 }
 
+fn merge_source_app_name(previous: &str, current: &str) -> String {
+    let previous = normalize_source_app_name(previous.to_string());
+    let current = normalize_source_app_name(current.to_string());
+    if current != default_source_app() {
+        current
+    } else {
+        previous
+    }
+}
+
 fn stable_source_app_name(previous: &str, current: &str) -> String {
     let previous = normalize_source_app_name(previous.to_string());
     let current = normalize_source_app_name(current.to_string());
@@ -2003,11 +2013,14 @@ fn persist_captured_snapshot(
         .map_err(|_| "无法锁定本地历史。".to_string())?;
     let mut entries = read_history_entries(app)?;
     let previous_entries = entries.clone();
-    let pinned = entries
+    let existing = entries
         .iter()
-        .find(|entry| history_entry_matches_snapshot(entry, snapshot))
-        .is_some_and(|entry| entry.pinned);
+        .find(|entry| history_entry_matches_snapshot(entry, snapshot));
+    let pinned = existing.is_some_and(|entry| entry.pinned);
     let mut entry = history_entry_from_snapshot(snapshot);
+    if let Some(existing) = existing {
+        entry.source_app = merge_source_app_name(&existing.source_app, &entry.source_app);
+    }
     entry.pinned = pinned;
     entries.retain(|candidate| !history_entry_matches_snapshot(candidate, snapshot));
     entries.insert(0, entry);
@@ -3164,11 +3177,11 @@ mod tests {
         file_name, has_meaningful_clipboard_text, history_entry_from_snapshot,
         history_entry_matches_snapshot, is_email_like, is_existing_secure_item_error,
         is_image_format, is_image_path, is_missing_secure_item_error, is_protected_history_entry,
-        is_sensitive_text, is_single_image_file, normalize_cleanup_schedule, normalize_file_path,
-        normalize_history, normalize_notification_settings, normalize_position,
-        normalize_source_app_name, notification_title, prune_old_entries, sensitive_secret_ref,
-        source_app_after_sampling, stable_source_app_name, take_source_app_hint,
-        unavailable_image_snapshot, valid_image_id,
+        is_sensitive_text, is_single_image_file, merge_source_app_name, normalize_cleanup_schedule,
+        normalize_file_path, normalize_history, normalize_notification_settings,
+        normalize_position, normalize_source_app_name, notification_title, prune_old_entries,
+        sensitive_secret_ref, source_app_after_sampling, stable_source_app_name,
+        take_source_app_hint, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3298,6 +3311,14 @@ mod tests {
         assert_eq!(entries[0].source_app, "未知应用");
         assert_eq!(entries[1].source_app, "未知应用");
         assert_eq!(entries[2].source_app, "TextEdit");
+    }
+
+    #[test]
+    fn unknown_source_does_not_replace_a_confirmed_source() {
+        assert_eq!(merge_source_app_name("Safari", "未知应用"), "Safari");
+        assert_eq!(merge_source_app_name("未知应用", "Safari"), "Safari");
+        assert_eq!(merge_source_app_name("Safari", "Finder"), "Finder");
+        assert_eq!(merge_source_app_name("未知应用", "未知应用"), "未知应用");
     }
 
     #[test]
