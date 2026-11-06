@@ -975,40 +975,51 @@ fn spawn_macos_source_tracker(
             };
 
             let mut previous_count: isize = pasteboard.changeCount();
+            let mut pending_change: Option<(isize, String)> = None;
             // The event tracker must stay non-blocking. `source_app_name()`
             // can invoke osascript when AppKit cannot resolve the frontmost
             // app, and that process launch is slow enough to misalign a
             // changeCount with the application that performed the copy.
             // Keep the fallback for manual reads, but use only the fast
             // AppKit sample while pairing native clipboard events.
-            let mut previous_frontmost = macos_frontmost_app_name()
-                .map(normalize_source_app_name)
-                .unwrap_or_else(default_source_app);
             while !stop.load(Ordering::Relaxed) {
                 let current_count: isize = pasteboard.changeCount();
                 let current_frontmost = macos_frontmost_app_name()
                     .map(normalize_source_app_name)
                     .unwrap_or_else(default_source_app);
                 if current_count != previous_count {
+                    // The first sample only tells us which pasteboard change
+                    // happened. Confirm the foreground app on the next
+                    // sample so switching into the copying app does not
+                    // incorrectly turn an otherwise valid source into an
+                    // unknown app.
+                    if let Some((pending_count, _)) = pending_change.take() {
+                        if let Ok(mut hints) = source_app_hint.lock() {
+                            hints.push_back(SourceAppHint {
+                                name: default_source_app(),
+                                observed_at: Instant::now(),
+                                change_count: pending_count,
+                            });
+                            while hints.len() > 32 {
+                                hints.pop_front();
+                            }
+                        }
+                    }
                     previous_count = current_count;
+                    pending_change = Some((current_count, current_frontmost));
+                } else if let Some((change_count, first_frontmost)) = pending_change.take() {
+                    let source_app = stable_source_app_name(&first_frontmost, &current_frontmost);
                     if let Ok(mut hints) = source_app_hint.lock() {
                         hints.push_back(SourceAppHint {
-                            // The source is reliable only while the
-                            // frontmost app is stable across the observed
-                            // pasteboard change. If the app changed between
-                            // samples, either side could have performed the
-                            // copy, so keep the attribution unknown instead
-                            // of assigning it to the wrong app.
-                            name: stable_source_app_name(&previous_frontmost, &current_frontmost),
+                            name: source_app,
                             observed_at: Instant::now(),
-                            change_count: current_count,
+                            change_count,
                         });
                         while hints.len() > 32 {
                             hints.pop_front();
                         }
                     }
                 }
-                previous_frontmost = current_frontmost;
                 thread::sleep(Duration::from_millis(5));
             }
         })
