@@ -423,7 +423,6 @@ impl ClipboardHandler for ClipboardMonitor {
         };
         match read_clipboard_snapshot(&self.app, &settings, Some(&source_app)) {
             Ok(mut snapshot) => {
-                sanitize_source_app(&mut snapshot, &settings);
                 update_monitor_status(
                     &self.app,
                     &self.monitor_status,
@@ -2148,15 +2147,8 @@ fn read_clipboard(
         .read()
         .map_err(|_| "无法读取剪贴板捕获设置。".to_string())?
         .clone();
-    let mut snapshot = read_clipboard_snapshot(&app, &settings, None)?;
-    sanitize_source_app(&mut snapshot, &settings);
+    let snapshot = read_clipboard_snapshot(&app, &settings, None)?;
     Ok(snapshot)
-}
-
-fn sanitize_source_app(snapshot: &mut ClipboardSnapshot, settings: &NotificationSettings) {
-    if !settings.show_source_app {
-        snapshot.source_app = default_source_app();
-    }
 }
 
 fn read_clipboard_snapshot(
@@ -3174,9 +3166,9 @@ mod tests {
         is_image_format, is_image_path, is_missing_secure_item_error, is_protected_history_entry,
         is_sensitive_text, is_single_image_file, normalize_cleanup_schedule, normalize_file_path,
         normalize_history, normalize_notification_settings, normalize_position,
-        normalize_source_app_name, notification_title, prune_old_entries, sanitize_source_app,
-        sensitive_secret_ref, source_app_after_sampling, stable_source_app_name,
-        take_source_app_hint, unavailable_image_snapshot, valid_image_id,
+        normalize_source_app_name, notification_title, prune_old_entries, sensitive_secret_ref,
+        source_app_after_sampling, stable_source_app_name, take_source_app_hint,
+        unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3964,8 +3956,8 @@ mod tests {
     }
 
     #[test]
-    fn does_not_keep_source_app_when_display_is_disabled() {
-        let mut snapshot = ClipboardSnapshot {
+    fn keeps_source_app_for_history_when_display_is_disabled() {
+        let snapshot = ClipboardSnapshot {
             kind: "files",
             sensitivity: "normal",
             text: Some("/Users/demo/Downloads/report.zip".to_string()),
@@ -3985,13 +3977,14 @@ mod tests {
             ..NotificationSettings::default()
         };
 
-        sanitize_source_app(&mut snapshot, &settings);
-
-        assert_eq!(snapshot.source_app, "未知应用");
-        assert_eq!(
-            history_entry_from_snapshot(&snapshot).source_app,
-            "未知应用"
-        );
+        let toast = build_toast_payload(
+            &snapshot,
+            &Arc::new(RwLock::new(settings)),
+            &Arc::new(RwLock::new(CaptureState::default())),
+        )
+        .expect("toast should still be available");
+        assert!(!toast.message.contains("Finder"));
+        assert_eq!(history_entry_from_snapshot(&snapshot).source_app, "Finder");
     }
 
     #[test]
