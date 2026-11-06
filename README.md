@@ -35,9 +35,9 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：通过**：[Build MiaoClip · `320a4f9`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/42237369408) 已于 **2026 年 11 月 6 日（北京时间）**完成，6 个 job 全部成功，包含 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，以及 Apple Silicon、Intel Mac 和 Windows 安装包构建。日志中没有实际构建错误或测试失败；当前仅保留 GitHub Actions 运行环境的 Node.js 20 弃用提示。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)验证。
+- **CI：通过**：[Build MiaoClip · `1d8af83`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/42270390927) 已于 **2026 年 11 月 7 日（北京时间）**完成，6 个 job 全部成功，包含 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，以及 Apple Silicon、Intel Mac 和 Windows 安装包构建。日志中没有实际构建错误或测试失败；当前仅保留 GitHub Actions 运行环境的 Node.js 20 弃用提示。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)验证。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
-- **macOS Apple Silicon：本机后台捕获部分验收通过**：已确认普通文本、前导空白与换行、中文、Emoji、完整日期时间、来源应用、重复内容去重、纯空白过滤、图片捕获、文件捕获、文件名展示、敏感内容脱敏与 Keychain 存储、暂停监听、隐私模式、历史持久化和监听恢复；本轮还修复了 Finder 同时提供文件 URL 和图标图像时把普通文件误记为图片的问题。通知视觉内容与点击回跳、敏感内容查看 / 再次复制和开机启动仍需逐项验收。来源应用识别是尽力而为：通过脚本或系统命令写入剪贴板时，macOS 可能只能看到当时的前台应用，不能把该来源当作审计级事实。
+- **macOS Apple Silicon：本机后台捕获部分验收通过**：已确认普通文本、前导空白与换行、中文、Emoji、完整日期时间、来源应用、重复内容去重、纯空白过滤、图片捕获、文件捕获、文件名展示、敏感内容脱敏与 Keychain 存储、暂停监听、隐私模式、历史持久化和监听恢复；本轮还验证了 TextEdit 文本、Finder 普通文件和 Finder PNG 图片的真实复制链路，确认文件显示文件名、图片保留为图片记录并生成可预览副本。通知视觉内容与点击回跳、敏感内容查看 / 再次复制和开机启动仍需逐项验收。来源应用识别是尽力而为：通过脚本或系统命令写入剪贴板时，macOS 可能只能看到当时的前台应用，不能把该来源当作审计级事实。
 - **macOS Intel：构建已验证，设备验收待完成**：需要在 Intel Mac 上补做完整剪贴板、通知和开机启动验收。
 - **Windows / Linux：构建已验证，设备验收待完成**：通知、开机启动、WebView2 或桌面环境差异需要在对应真实设备上检查。
 
@@ -294,7 +294,7 @@ notifications.json  通知开关、位置和持续时间
 
 | 平台 | 当前状态 | 说明 |
 | --- | --- | --- |
-| macOS Apple Silicon | 本机后台捕获部分验收通过 | 已验证文本、空白与换行、中文、Emoji、完整时间、来源应用、去重、图片 / 文件捕获、敏感内容脱敏与 Keychain、暂停监听、隐私模式、持久化和监听恢复；解锁桌面后仍需补测通知点击、Finder 真实文件复制、敏感内容查看 / 再次复制和开机启动 |
+| macOS Apple Silicon | 本机后台捕获部分验收通过 | 已验证文本、空白与换行、中文、Emoji、完整时间、来源应用、去重、Finder 图片 / 文件捕获、敏感内容脱敏与 Keychain、暂停监听、隐私模式、持久化和监听恢复；仍需补测通知点击、敏感内容查看 / 再次复制和开机启动 |
 | macOS Intel | 构建已验证；真实设备验收待完成 | Actions 提供 Intel 安装包，需要补测剪贴板类型、通知交互和开机启动 |
 | Windows | GitHub Actions 检查与安装包构建已通过（[已验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41980131859)）；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
 | Linux | GitHub Actions 检查通过；v0.1.0 x64 安装包构建已通过；真实设备验收待完成 | Release 提供 `.deb` 和 `.AppImage`；来源应用识别依赖桌面环境，优先使用 `xdotool`，不同桌面环境仍需实测 |
