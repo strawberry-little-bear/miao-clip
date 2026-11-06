@@ -2115,35 +2115,10 @@ fn read_clipboard_snapshot(
         .unwrap_or_else(source_app_name);
 
     if let Ok(clipboard) = ClipboardContext::new() {
-        // Some macOS sources expose both file URLs and a rendered image on the
-        // same pasteboard. Prefer the actual image payload so copied pictures
-        // are recorded as images instead of being mislabeled as files.
-        let image_formats = clipboard.available_formats().unwrap_or_default();
-        let raw_image_buffers = image_formats
-            .into_iter()
-            .filter(|format| is_image_format(format))
-            .filter_map(|format| {
-                clipboard
-                    .get_buffer(&format)
-                    .ok()
-                    .map(|bytes| (format, bytes))
-            });
-        let image = decode_image_buffers(raw_image_buffers).or_else(|| clipboard.get_image().ok());
-
-        if let Some(image) = image {
-            if !settings.capture_images {
-                return Ok(ignored_capture_snapshot("图片捕获已关闭"));
-            }
-            let (width, height) = image.get_size();
-            let png = image
-                .to_png()
-                .map_err(|error| format!("无法编码剪贴板图片：{error}"))?;
-            let mut snapshot =
-                save_png_image_snapshot(app, png.get_bytes().to_vec(), width, height)?;
-            snapshot.source_app = source_app.clone();
-            return Ok(snapshot);
-        }
-
+        // Finder and similar file managers often expose both file URLs and a
+        // preview/icon image for the same copy operation. Resolve file URLs
+        // first so copying a regular file is not mistaken for copying an
+        // image merely because an application also supplied its icon.
         if let Ok(raw_files) = clipboard.get_files()
             && !raw_files.is_empty()
         {
@@ -2180,6 +2155,35 @@ fn read_clipboard_snapshot(
                 files: Some(files),
                 toast: None,
             });
+        }
+
+        // Some image sources expose several native image formats at once.
+        // Decode the first supported payload and normalize it to PNG for
+        // durable local previews.
+        let image_formats = clipboard.available_formats().unwrap_or_default();
+        let raw_image_buffers = image_formats
+            .into_iter()
+            .filter(|format| is_image_format(format))
+            .filter_map(|format| {
+                clipboard
+                    .get_buffer(&format)
+                    .ok()
+                    .map(|bytes| (format, bytes))
+            });
+        let image = decode_image_buffers(raw_image_buffers).or_else(|| clipboard.get_image().ok());
+
+        if let Some(image) = image {
+            if !settings.capture_images {
+                return Ok(ignored_capture_snapshot("图片捕获已关闭"));
+            }
+            let (width, height) = image.get_size();
+            let png = image
+                .to_png()
+                .map_err(|error| format!("无法编码剪贴板图片：{error}"))?;
+            let mut snapshot =
+                save_png_image_snapshot(app, png.get_bytes().to_vec(), width, height)?;
+            snapshot.source_app = source_app.clone();
+            return Ok(snapshot);
         }
     }
 
