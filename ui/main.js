@@ -21,7 +21,6 @@
       paused: false,
       privacyMode: false,
     },
-    skipNextClipboard: false,
     notificationSettings: {
       inApp: true,
       desktop: true,
@@ -238,7 +237,6 @@
         paused: state.captureState.paused,
         privacyMode: state.captureState.privacyMode,
       });
-      state.skipNextClipboard = true;
       setMessage(state.captureState.privacyMode
         ? "隐私模式已开启，不会捕获、保存或通知新的剪贴板内容。"
         : state.captureState.paused
@@ -1286,11 +1284,6 @@
       const snapshot = await invoke("read_clipboard");
       const signature = snapshotSignature(snapshot);
       if (snapshot.kind === "other" || snapshot.kind === "empty" || signature === state.lastClipboardText) return;
-      if (state.skipNextClipboard) {
-        state.lastClipboardText = signature;
-        state.skipNextClipboard = false;
-        return;
-      }
       state.lastClipboardText = signature;
       await handleClipboardSnapshot(snapshot, true);
     } catch (error) {
@@ -1378,11 +1371,6 @@
         if (state.captureState.paused || state.captureState.privacyMode) return;
         if (!payload || payload.kind === "other" || payload.kind === "empty") {
           pollClipboard();
-          return;
-        }
-        if (state.skipNextClipboard) {
-          state.lastClipboardText = snapshotSignature(payload);
-          state.skipNextClipboard = false;
           return;
         }
         if (state.notificationSettings.inApp && payload.toast?.message) {
