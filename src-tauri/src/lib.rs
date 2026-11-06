@@ -975,10 +975,20 @@ fn spawn_macos_source_tracker(
             };
 
             let mut previous_count: isize = pasteboard.changeCount();
-            let mut previous_frontmost = source_app_name();
+            // The event tracker must stay non-blocking. `source_app_name()`
+            // can invoke osascript when AppKit cannot resolve the frontmost
+            // app, and that process launch is slow enough to misalign a
+            // changeCount with the application that performed the copy.
+            // Keep the fallback for manual reads, but use only the fast
+            // AppKit sample while pairing native clipboard events.
+            let mut previous_frontmost = macos_frontmost_app_name()
+                .map(normalize_source_app_name)
+                .unwrap_or_else(default_source_app);
             while !stop.load(Ordering::Relaxed) {
                 let current_count: isize = pasteboard.changeCount();
-                let current_frontmost = source_app_name();
+                let current_frontmost = macos_frontmost_app_name()
+                    .map(normalize_source_app_name)
+                    .unwrap_or_else(default_source_app);
                 if current_count != previous_count {
                     previous_count = current_count;
                     if let Ok(mut hints) = source_app_hint.lock() {
