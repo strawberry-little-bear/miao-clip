@@ -15,7 +15,7 @@
         "url": "index.html?build=14",
         "width": 920,
         "height": 640,
-        "visible": true,
+        "visible": false,
         "center": true,
         "resizable": true,
         "minWidth": 720,

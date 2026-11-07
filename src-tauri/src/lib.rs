@@ -46,6 +46,7 @@ const HISTORY_FILE_VERSION: u8 = 2;
 const HISTORY_EXPORT_VERSION: u8 = 1;
 const KEYRING_SERVICE: &str = "miao-clip";
 const QUICK_PASTE_SHORTCUT: &str = "CommandOrControl+Shift+Space";
+const AUTOSTART_ARGUMENT: &str = "--miao-clip-autostart";
 
 static SENSITIVE_STORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -764,6 +765,19 @@ fn platform_label() -> &'static str {
     }
     #[allow(unreachable_code)]
     "未知平台"
+}
+
+fn has_autostart_argument<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .any(|argument| argument.as_ref() == AUTOSTART_ARGUMENT)
+}
+
+fn launched_from_autostart() -> bool {
+    has_autostart_argument(std::env::args())
 }
 
 #[cfg(desktop)]
@@ -2964,10 +2978,17 @@ fn spawn_clipboard_monitor(app: AppHandle, state: RuntimeState) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
+        .plugin({
+            let mut builder = tauri_plugin_autostart::Builder::new()
+                .app_name("MiaoClip")
+                .args([AUTOSTART_ARGUMENT]);
+            #[cfg(target_os = "macos")]
+            {
+                builder =
+                    builder.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+            }
+            builder.build()
+        })
         .setup(|app| {
             #[cfg(desktop)]
             {
@@ -3082,13 +3103,33 @@ pub fn run() {
             #[cfg(desktop)]
             build_tray(app)?;
 
+            // Re-apply the current registration so users who enabled
+            // autostart before hidden-launch arguments were introduced get
+            // the new background startup behavior on the next launch.
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_autostart::ManagerExt;
+
+                if app
+                    .autolaunch()
+                    .is_enabled()
+                    .map_err(|error| log::debug!("无法检查开机启动状态：{error}"))
+                    .unwrap_or(false)
+                    && let Err(error) = app.autolaunch().enable()
+                {
+                    log::warn!("无法刷新开机启动参数：{error}");
+                }
+            }
+
             #[cfg(target_os = "macos")]
             app.handle()
                 .set_activation_policy(ActivationPolicy::Regular)
                 .map_err(std::io::Error::other)?;
 
             #[cfg(desktop)]
-            show_main_window(app.handle()).map_err(std::io::Error::other)?;
+            if !launched_from_autostart() {
+                show_main_window(app.handle()).map_err(std::io::Error::other)?;
+            }
 
             spawn_clipboard_monitor(app.handle().clone(), runtime_state);
 
@@ -3158,10 +3199,11 @@ mod tests {
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
         SourceAppHint, build_toast_payload, classify_text, content_entry_id, decode_image_buffers,
-        file_name, has_meaningful_clipboard_text, history_entry_from_snapshot,
-        history_entry_matches_snapshot, is_email_like, is_existing_secure_item_error,
-        is_image_format, is_image_path, is_missing_secure_item_error, is_protected_history_entry,
-        is_sensitive_text, is_single_image_file, merge_source_app_name, normalize_cleanup_schedule,
+        file_name, has_autostart_argument, has_meaningful_clipboard_text,
+        history_entry_from_snapshot, history_entry_matches_snapshot, is_email_like,
+        is_existing_secure_item_error, is_image_format, is_image_path,
+        is_missing_secure_item_error, is_protected_history_entry, is_sensitive_text,
+        is_single_image_file, merge_source_app_name, normalize_cleanup_schedule,
         normalize_file_path, normalize_history, normalize_notification_settings,
         normalize_position, normalize_source_app_name, notification_title, prune_old_entries,
         sensitive_secret_ref, source_app_after_sampling, stable_source_app_name,
@@ -3372,6 +3414,18 @@ mod tests {
             take_source_app_hint(&hints, Some(12)).as_deref(),
             Some("Safari")
         );
+    }
+
+    #[test]
+    fn autostart_argument_only_matches_the_exact_hidden_launch_flag() {
+        assert!(has_autostart_argument([
+            "/Applications/MiaoClip.app/Contents/MacOS/MiaoClip",
+            "--miao-clip-autostart",
+        ]));
+        assert!(!has_autostart_argument([
+            "/Applications/MiaoClip.app/Contents/MacOS/MiaoClip",
+            "--miao-clip-autostart-extra",
+        ]));
     }
 
     #[test]
