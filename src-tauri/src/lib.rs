@@ -157,16 +157,16 @@ fn stable_source_app_name(previous: &str, current: &str) -> String {
     }
 }
 
-fn source_app_after_sampling(
-    first_frontmost: &str,
-    _current_frontmost: &str,
-    frontmost_was_stable: bool,
-) -> String {
-    if frontmost_was_stable {
+fn source_app_after_sampling(first_frontmost: &str, current_frontmost: &str) -> String {
+    if normalize_source_app_name(first_frontmost.to_string())
+        == normalize_source_app_name(current_frontmost.to_string())
+    {
         // The first sample is taken when the pasteboard change is observed.
-        // A user can switch windows before the next sample, but that later
-        // foreground app did not perform the copy and must not overwrite the
-        // source captured at the event boundary.
+        // If the foreground app is still the same on the next sample, it is
+        // the best available source attribution even when the user copied
+        // immediately after switching to that app. A mismatch means the
+        // foreground changed during sampling, so showing an explicit unknown
+        // source is safer than attributing either side.
         normalize_source_app_name(first_frontmost.to_string())
     } else {
         default_source_app()
@@ -987,12 +987,6 @@ fn spawn_macos_source_tracker(
     source_app_hint: Arc<Mutex<VecDeque<SourceAppHint>>>,
     stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
-    // A pasteboard change can become visible well after the user switches
-    // windows. Requiring a longer stable interval avoids attributing a
-    // delayed copy to the newly focused app; uncertain events are deliberately
-    // recorded as "未知应用" instead of using a wrong application name.
-    const MIN_FRONTMOST_STABILITY: Duration = Duration::from_millis(1_000);
-
     thread::Builder::new()
         .name("macos-source-tracker".to_string())
         .spawn(move || {
@@ -1012,8 +1006,7 @@ fn spawn_macos_source_tracker(
             let mut last_frontmost = macos_frontmost_app_name()
                 .map(normalize_source_app_name)
                 .unwrap_or_else(default_source_app);
-            let mut frontmost_stable_since = Instant::now();
-            let mut pending_change: Option<(isize, String, bool)> = None;
+            let mut pending_change: Option<(isize, String)> = None;
             // The event tracker must stay non-blocking. `source_app_name()`
             // can invoke osascript when AppKit cannot resolve the frontmost
             // app, and that process launch is slow enough to misalign a
@@ -1028,7 +1021,6 @@ fn spawn_macos_source_tracker(
                     .unwrap_or_else(default_source_app);
                 if current_frontmost != last_frontmost {
                     last_frontmost = current_frontmost.clone();
-                    frontmost_stable_since = observed_at;
                 }
                 if current_count != previous_count {
                     // The first sample only tells us which pasteboard change
@@ -1036,7 +1028,7 @@ fn spawn_macos_source_tracker(
                     // sample so switching into the copying app does not
                     // incorrectly turn an otherwise valid source into an
                     // unknown app.
-                    if let Some((pending_count, _, _)) = pending_change.take() {
+                    if let Some((pending_count, _)) = pending_change.take() {
                         if let Ok(mut hints) = source_app_hint.lock() {
                             hints.push_back(SourceAppHint {
                                 name: default_source_app(),
@@ -1049,17 +1041,10 @@ fn spawn_macos_source_tracker(
                         }
                     }
                     previous_count = current_count;
-                    let frontmost_was_stable = observed_at.duration_since(frontmost_stable_since)
-                        >= MIN_FRONTMOST_STABILITY;
-                    pending_change = Some((current_count, current_frontmost, frontmost_was_stable));
-                } else if let Some((change_count, first_frontmost, frontmost_was_stable)) =
-                    pending_change.take()
-                {
-                    let source_app = source_app_after_sampling(
-                        &first_frontmost,
-                        &current_frontmost,
-                        frontmost_was_stable,
-                    );
+                    pending_change = Some((current_count, current_frontmost));
+                } else if let Some((change_count, first_frontmost)) = pending_change.take() {
+                    let source_app =
+                        source_app_after_sampling(&first_frontmost, &current_frontmost);
                     if let Ok(mut hints) = source_app_hint.lock() {
                         hints.push_back(SourceAppHint {
                             name: source_app,
@@ -3276,19 +3261,13 @@ mod tests {
     }
 
     #[test]
-    fn source_app_uses_the_stable_app_at_the_copy_event_boundary() {
+    fn source_app_uses_the_matching_app_at_the_copy_event_boundary() {
+        assert_eq!(source_app_after_sampling("Safari", "Safari"), "Safari");
+        assert_eq!(source_app_after_sampling("Safari", "Safari"), "Safari");
         assert_eq!(
-            source_app_after_sampling("Safari", "Safari", false),
-            "未知应用"
-        );
-        assert_eq!(
-            source_app_after_sampling("Safari", "Safari", true),
-            "Safari"
-        );
-        assert_eq!(
-            source_app_after_sampling("Safari", "Terminal", true),
-            "Safari",
-            "a later foreground-app switch must not replace the app that was stable when the copy was observed"
+            source_app_after_sampling("Safari", "Terminal"),
+            "未知应用",
+            "a foreground-app switch during sampling must not be attributed to either app"
         );
     }
 
