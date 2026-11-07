@@ -1344,14 +1344,8 @@ fn store_sensitive_secret(secret_ref: &str, text: &str) -> Result<(), String> {
     let _guard = sensitive_store_lock()?;
     let entry = sensitive_keyring_entry(secret_ref)?;
 
-    // Reusing an existing item avoids an unnecessary Keychain write during
-    // history migration and makes repeated saves harmless.
-    if let Ok(existing) = entry.get_password()
-        && existing == text
-    {
-        return Ok(());
-    }
-
+    // Write first so a new capture does not perform an unnecessary Keychain
+    // read and trigger an authorization prompt before the item exists.
     match entry.set_password(text) {
         Ok(()) => Ok(()),
         Err(error) if is_existing_secure_item_error(&error) => {
