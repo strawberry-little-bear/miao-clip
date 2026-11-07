@@ -19,6 +19,8 @@ use clipboard_rs::{Clipboard as ClipboardFormats, ClipboardContext, RustImageDat
 use keyring::Entry as KeyringEntry;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewWindow, WindowEvent,
 };
@@ -3105,6 +3107,14 @@ pub fn run() {
 
             #[cfg(desktop)]
             build_tray(app)?;
+
+            #[cfg(target_os = "macos")]
+            app.handle()
+                .set_activation_policy(ActivationPolicy::Regular)
+                .map_err(std::io::Error::other)?;
+
+            #[cfg(desktop)]
+            show_main_window(app.handle()).map_err(std::io::Error::other)?;
 
             spawn_clipboard_monitor(app.handle().clone(), runtime_state);
 
