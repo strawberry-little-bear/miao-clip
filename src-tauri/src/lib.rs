@@ -419,7 +419,6 @@ impl ClipboardHandler for ClipboardMonitor {
                 // change before falling back. A wrong app name is worse than
                 // an explicit unknown source in the history.
                 take_settled_source_app_hint(&self.source_app_hint, change_count)
-                    .map(validate_macos_source_app_hint)
                     .unwrap_or_else(default_source_app)
             }
             None => default_source_app(),
@@ -976,18 +975,6 @@ fn take_settled_source_app_hint(
     }
 
     None
-}
-
-#[cfg(target_os = "macos")]
-fn validate_macos_source_app_hint(source_app: String) -> String {
-    let current_frontmost = macos_frontmost_app_name()
-        .map(normalize_source_app_name)
-        .unwrap_or_else(default_source_app);
-    if is_usable_source_app(&current_frontmost) && current_frontmost != source_app {
-        default_source_app()
-    } else {
-        source_app
-    }
 }
 
 #[cfg(target_os = "macos")]
