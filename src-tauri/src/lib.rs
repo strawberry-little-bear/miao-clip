@@ -146,6 +146,7 @@ fn merge_source_app_name(previous: &str, current: &str) -> String {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn stable_source_app_name(previous: &str, current: &str) -> String {
     let previous = normalize_source_app_name(previous.to_string());
     let current = normalize_source_app_name(current.to_string());
@@ -158,11 +159,15 @@ fn stable_source_app_name(previous: &str, current: &str) -> String {
 
 fn source_app_after_sampling(
     first_frontmost: &str,
-    current_frontmost: &str,
+    _current_frontmost: &str,
     frontmost_was_stable: bool,
 ) -> String {
     if frontmost_was_stable {
-        stable_source_app_name(first_frontmost, current_frontmost)
+        // The first sample is taken when the pasteboard change is observed.
+        // A user can switch windows before the next sample, but that later
+        // foreground app did not perform the copy and must not overwrite the
+        // source captured at the event boundary.
+        normalize_source_app_name(first_frontmost.to_string())
     } else {
         default_source_app()
     }
@@ -3268,7 +3273,7 @@ mod tests {
     }
 
     #[test]
-    fn source_app_is_unknown_when_frontmost_was_not_stable_before_change() {
+    fn source_app_uses_the_stable_app_at_the_copy_event_boundary() {
         assert_eq!(
             source_app_after_sampling("Safari", "Safari", false),
             "未知应用"
@@ -3276,6 +3281,11 @@ mod tests {
         assert_eq!(
             source_app_after_sampling("Safari", "Safari", true),
             "Safari"
+        );
+        assert_eq!(
+            source_app_after_sampling("Safari", "Terminal", true),
+            "Safari",
+            "a later foreground-app switch must not replace the app that was stable when the copy was observed"
         );
     }
 
