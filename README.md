@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：通过**：[Build MiaoClip · `42340151154`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/42340151154) 已于 **2026 年 11 月 7 日（北京时间）**完成，6 个 job 全部成功，包含 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，以及 Apple Silicon、Intel Mac 和 Windows 安装包构建。日志中没有实际构建错误或测试失败；当前仅保留 GitHub Actions 运行环境的 Node.js 20 弃用提示。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)验证。本轮还修复了历史记录和新捕获记录中来源应用名称不一致的问题：系统内部进程、妙夹自身和无法可靠确认的来源统一显示为“未知应用”，有效来源会保留并清理首尾空格。
+- **CI：通过**：[Build MiaoClip · `42343856965`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/42343856965) 已于 **2026 年 11 月 7 日（北京时间）**完成，6 个 job 全部成功，包含 Windows、macOS 和 Linux 的格式检查、编译检查及 Rust 测试，以及 Apple Silicon、Intel Mac 和 Windows 安装包构建。日志中没有实际构建错误或测试失败；当前仅保留 GitHub Actions 运行环境的 Node.js 20 弃用提示。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)验证。本轮还修复了历史记录和新捕获记录中来源应用名称不一致的问题：系统内部进程、妙夹自身和无法可靠确认的来源统一显示为“未知应用”，有效来源会保留并清理首尾空格。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
 - **macOS Apple Silicon：本机后台捕获和核心交互验收通过**：已确认普通文本、前导空白与换行、中文、Emoji、完整日期时间、来源应用、重复内容去重、纯空白过滤、图片捕获、文件捕获、文件名展示、敏感内容脱敏与 Keychain 存储、显示原文后再次复制、暂停监听、隐私模式、历史持久化、监听恢复和桌面提示窗口。还验证了 TextEdit 文本、Finder 普通文件和 Finder PNG 图片的真实复制链路，确认文件显示文件名、图片保留为图片记录并生成可预览副本。额外验证了 QQ 提供的扩展名为 `.jpg` 但实际编码为 GIF 的图片：妙夹能够按真实格式解码，并保存为本地 PNG 预览副本。来源应用识别是尽力而为：通过脚本或系统命令写入剪贴板时，macOS 可能只能看到当时的前台应用，不能把该来源当作审计级事实；点击提示跳转和开机启动仍需在对应用户场景下继续验收。
 - **macOS Intel：构建已验证，设备验收待完成**：Intel 构建已在 CI 成功，仍需要 Intel Mac 实机补做完整剪贴板、通知和开机启动验收。
@@ -129,7 +129,7 @@
 ### 自动捕获
 
 - 后台监听系统剪贴板，复制成功后自动写入本地历史。
-- 来源应用按剪贴板事件尽早采样；macOS 持续记录 `changeCount` 和前台应用，并在内容稳定后按最终变化序号对齐来源，事件追踪只使用快速的 AppKit 采样，不让脚本回退阻塞连续复制；这样可以避免妙夹写回剪贴板后紧接着复制造成来源串位。如果最终变化无法可靠匹配、检测到复制前后发生前台应用切换，或采样到妙夹自身，则显示“未知应用”，不使用不确定的应用名冒充来源；Windows 读取剪贴板所有者和对应进程，不再用复制后的当前前台窗口补位；Linux 对复制前后前台窗口做稳定性校验。macOS 系统不公开统一的剪贴板写入者 API，Linux/Wayland 也可能限制来源查询，极短时间切换、锁屏系统进程或后台脚本复制时仍可能显示“未知应用”。
+- 来源应用按剪贴板事件尽早采样；macOS 持续记录 `changeCount` 和前台应用，并在内容稳定后按最终变化序号对齐来源，事件追踪只使用快速的 AppKit 采样，不让脚本回退阻塞连续复制；前台应用切换后的短时间窗口内不会强行归因，无法可靠确认时显示“未知应用”，避免把延迟到达的复制错误记到新切换的应用上。Windows 读取剪贴板所有者和对应进程，不再用复制后的当前前台窗口补位；Linux 对复制前后前台窗口做稳定性校验。macOS 系统不公开统一的剪贴板写入者 API，Linux/Wayland 也可能限制来源查询，极短时间切换、锁屏系统进程或后台脚本复制时仍可能显示“未知应用”。
 - 支持普通文本、URL、账号、疑似密码 / Token / API Key、图片和文件。
 - 记录来源应用、完整捕获日期和时间、内容类型、敏感状态和收藏状态。
 - 妙夹自己复制内容时会短暂抑制再次捕获，避免历史重复。

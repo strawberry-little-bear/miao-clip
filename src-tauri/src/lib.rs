@@ -987,7 +987,11 @@ fn spawn_macos_source_tracker(
     source_app_hint: Arc<Mutex<VecDeque<SourceAppHint>>>,
     stop: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
-    const MIN_FRONTMOST_STABILITY: Duration = Duration::from_millis(40);
+    // A pasteboard change can become visible well after the user switches
+    // windows. Requiring a longer stable interval avoids attributing a
+    // delayed copy to the newly focused app; uncertain events are deliberately
+    // recorded as "未知应用" instead of using a wrong application name.
+    const MIN_FRONTMOST_STABILITY: Duration = Duration::from_millis(1_000);
 
     thread::Builder::new()
         .name("macos-source-tracker".to_string())
