@@ -16,6 +16,7 @@
     isPollingClipboard: false,
     nativeMonitorRunning: false,
     settingsSaveRequest: 0,
+    captureStateSaveRequest: 0,
     pendingOpenEntryId: null,
     captureState: {
       paused: false,
@@ -119,6 +120,13 @@
     bulkDelete: document.getElementById("bulk-delete"),
   };
 
+  function fromNativeCaptureState(captureState = {}) {
+    return {
+      paused: Boolean(captureState.paused),
+      privacyMode: Boolean(captureState.privacy_mode ?? captureState.privacyMode),
+    };
+  }
+
   function setMonitorStatus(status, label, detail) {
     if (state.captureState.privacyMode || state.captureState.paused) {
       renderCaptureStatus();
@@ -151,10 +159,7 @@
   async function loadCaptureState() {
     try {
       const captureState = await invoke("get_capture_state");
-      state.captureState = {
-        paused: Boolean(captureState?.paused),
-        privacyMode: Boolean(captureState?.privacy_mode ?? captureState?.privacyMode),
-      };
+      state.captureState = fromNativeCaptureState(captureState);
     } catch (error) {
       console.warn("读取监听状态失败", error);
     }
@@ -228,21 +233,27 @@
   }
 
   async function saveCaptureState(nextState) {
+    const requestId = ++state.captureStateSaveRequest;
     const previousState = { ...state.captureState };
     state.captureState = { ...state.captureState, ...nextState };
     renderCaptureStatus();
     elements.privacyMode.checked = state.captureState.privacyMode;
     try {
-      await invoke("set_capture_state", {
+      const captureState = await invoke("set_capture_state", {
         paused: state.captureState.paused,
         privacyMode: state.captureState.privacyMode,
       });
+      if (requestId !== state.captureStateSaveRequest) return;
+      state.captureState = fromNativeCaptureState(captureState);
+      elements.privacyMode.checked = state.captureState.privacyMode;
+      renderCaptureStatus();
       setMessage(state.captureState.privacyMode
         ? "隐私模式已开启，不会捕获、保存或通知新的剪贴板内容。"
         : state.captureState.paused
           ? "自动监听已暂停。"
           : "自动监听已恢复。", { toast: true });
     } catch (error) {
+      if (requestId !== state.captureStateSaveRequest) return;
       state.captureState = previousState;
       renderCaptureStatus();
       elements.privacyMode.checked = previousState.privacyMode;
@@ -1485,7 +1496,11 @@
   elements.bulkPin.addEventListener("click", () => bulkTogglePinned());
   elements.bulkDelete.addEventListener("click", () => bulkDeleteSelected());
   elements.monitorToggle.addEventListener("click", () => {
-    saveCaptureState({ paused: !state.captureState.paused, privacyMode: false });
+    if (state.captureState.privacyMode) {
+      saveCaptureState({ paused: false, privacyMode: false });
+    } else {
+      saveCaptureState({ paused: !state.captureState.paused, privacyMode: false });
+    }
   });
   elements.revealProtected.addEventListener("click", revealProtectedEntry);
   elements.copyProtected.addEventListener("click", copyProtectedEntry);
@@ -1558,7 +1573,8 @@
     saveNotificationSettings(previousSettings);
   });
   elements.privacyMode.addEventListener("change", () => {
-    saveCaptureState({ privacyMode: elements.privacyMode.checked });
+    const privacyMode = elements.privacyMode.checked;
+    saveCaptureState(privacyMode ? { privacyMode } : { paused: false, privacyMode });
   });
   elements.restartMonitor.addEventListener("click", () => restartClipboardMonitor());
   elements.launchAtLogin.addEventListener("change", async () => {

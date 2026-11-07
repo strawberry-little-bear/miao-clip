@@ -2682,7 +2682,7 @@ fn restart_clipboard_monitor(app: AppHandle, state: State<'_, RuntimeState>) -> 
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 fn set_capture_state(
     app: AppHandle,
     state: State<'_, RuntimeState>,
@@ -2697,7 +2697,11 @@ fn set_capture_state(
     current.privacy_mode = privacy_mode;
     #[cfg(desktop)]
     sync_tray_controls(&app, &current);
-    Ok(current.clone())
+    let updated = current.clone();
+    if let Err(error) = app.emit("capture-state-changed", updated.clone()) {
+        log::debug!("无法发送监听状态变化：{error}");
+    }
+    Ok(updated)
 }
 
 #[tauri::command]
