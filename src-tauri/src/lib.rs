@@ -2161,8 +2161,7 @@ fn read_clipboard_snapshot(
     // manual reads and polling, resolve it once before inspecting formats so
     // every branch uses the same source value.
     let source_app = source_app_hint
-        .filter(|name| !name.trim().is_empty())
-        .map(ToOwned::to_owned)
+        .map(|name| normalize_source_app_name(name.to_string()))
         .unwrap_or_else(source_app_name);
 
     if let Ok(clipboard) = ClipboardContext::new() {
@@ -3317,6 +3316,8 @@ mod tests {
     #[test]
     fn unknown_source_does_not_replace_a_confirmed_source() {
         assert_eq!(merge_source_app_name("Safari", "未知应用"), "Safari");
+        assert_eq!(merge_source_app_name("Safari", " MiaoClip "), "Safari");
+        assert_eq!(merge_source_app_name("Safari", "loginwindow"), "Safari");
         assert_eq!(merge_source_app_name("未知应用", "Safari"), "Safari");
         assert_eq!(merge_source_app_name("Safari", "Finder"), "Finder");
         assert_eq!(merge_source_app_name("未知应用", "未知应用"), "未知应用");

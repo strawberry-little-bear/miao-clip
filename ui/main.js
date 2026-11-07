@@ -480,10 +480,21 @@
     return "******";
   }
 
+  function isUsableSourceApp(name) {
+    const normalized = String(name || "").trim().toLowerCase();
+    return normalized !== ""
+      && !["未知应用", "miao-clip", "miaoclip", "妙夹", "loginwindow", "登录窗口", "windowserver", "window server", "systemuiserver", "system events"].includes(normalized);
+  }
+
+  function normalizeSourceApp(name) {
+    const trimmed = String(name || "").trim();
+    return isUsableSourceApp(trimmed) ? trimmed : "未知应用";
+  }
+
   function mergeSourceApp(previous, current) {
-    const previousName = String(previous || "未知应用").trim() || "未知应用";
-    const currentName = String(current || "未知应用").trim() || "未知应用";
-    return currentName === "未知应用" ? previousName : currentName;
+    const previousName = normalizeSourceApp(previous);
+    const currentName = normalizeSourceApp(current);
+    return currentName !== "未知应用" ? currentName : previousName;
   }
 
   function captureMessage(snapshot, entry) {
@@ -504,7 +515,7 @@
     } else {
       message = `已复制：${entry.title || "新剪贴板内容"}`;
     }
-    if (state.notificationSettings.showSourceApp && entry.source_app && entry.source_app !== "未知应用") {
+    if (state.notificationSettings.showSourceApp && isUsableSourceApp(entry.source_app)) {
       message += ` · 来自：${entry.source_app}`;
     }
     return message;
@@ -538,7 +549,7 @@
       category,
       kind,
       time: entry.time || new Date().toISOString(),
-      source_app: entry.source_app || entry.sourceApp || "未知应用",
+      source_app: normalizeSourceApp(entry.source_app || entry.sourceApp),
       pinned: Boolean(entry.pinned),
       tags: normalizeTags(entry.tags),
       length: Number.isFinite(entry.length) ? entry.length : (entry.text || "").length,
@@ -1167,13 +1178,13 @@
       time: new Date().toISOString(),
       // Keep the source in local history even when its visual display is
       // disabled. The setting controls presentation, not data collection.
-      source_app: snapshot.source_app || snapshot.sourceApp || "未知应用",
+      source_app: normalizeSourceApp(snapshot.source_app || snapshot.sourceApp),
       pinned: false,
       image_id: snapshot.image_id || null,
       image_width: snapshot.image_width || null,
       image_height: snapshot.image_height || null,
       files: snapshot.files || null,
-    } : { ...makeEntry(text, new Date().toISOString(), snapshot.entry_id, snapshot.sensitivity), source_app: snapshot.source_app || snapshot.sourceApp || "未知应用" };
+    } : { ...makeEntry(text, new Date().toISOString(), snapshot.entry_id, snapshot.sensitivity), source_app: normalizeSourceApp(snapshot.source_app || snapshot.sourceApp) };
     if (kind) entry.id = snapshot.entry_id || entry.id;
     const isProtected = entry.category === "password";
     if (isProtected && (!automatic || !snapshot.persisted)) {
