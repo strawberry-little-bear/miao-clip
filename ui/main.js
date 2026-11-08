@@ -141,6 +141,7 @@
     bulkPin: document.getElementById("bulk-pin"),
     bulkDelete: document.getElementById("bulk-delete"),
     appFrame: document.querySelector(".app-frame"),
+    workspace: document.querySelector(".workspace"),
     workspaceGrid: document.querySelector(".workspace-grid"),
     feedColumn: document.querySelector(".feed-column"),
     sidebarSplitter: document.getElementById("sidebar-splitter"),
@@ -164,11 +165,33 @@
   }
 
   function updateLayoutSplitterRanges() {
-    const maxSidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, Math.max(LAYOUT_MIN_SIDEBAR, window.innerWidth * 0.42));
+    const maxSidebarWidth = getMaxSidebarWidth();
     const gridWidth = elements.workspaceGrid?.getBoundingClientRect().width || 0;
     const maxFeedWidth = Math.max(LAYOUT_MIN_FEED, Math.min(LAYOUT_MAX_FEED, gridWidth - LAYOUT_SPLITTER_SIZE - DETAIL_MIN_WIDTH));
     elements.sidebarSplitter?.setAttribute("aria-valuemax", String(Math.round(maxSidebarWidth)));
     elements.feedSplitter?.setAttribute("aria-valuemax", String(Math.round(maxFeedWidth)));
+  }
+
+  function getWorkspaceHorizontalPadding() {
+    if (!elements.workspace) return 0;
+    const styles = window.getComputedStyle(elements.workspace);
+    return (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0);
+  }
+
+  function getMaxSidebarWidth() {
+    // Keep enough room for the feed and detail columns before allowing the
+    // sidebar to grow. This prevents a narrow desktop window from creating a
+    // hidden horizontal scroll area while the splitters are being dragged.
+    const minimumGridWidth = LAYOUT_MIN_FEED + LAYOUT_SPLITTER_SIZE + DETAIL_MIN_WIDTH;
+    const available = window.innerWidth
+      - LAYOUT_SPLITTER_SIZE
+      - getWorkspaceHorizontalPadding()
+      - minimumGridWidth;
+    return Math.min(
+      LAYOUT_MAX_SIDEBAR,
+      window.innerWidth * 0.42,
+      Math.max(LAYOUT_MIN_SIDEBAR, available),
+    );
   }
 
   function applyLayout() {
@@ -201,7 +224,7 @@
 
   function clampLayoutToViewport() {
     if (window.innerWidth <= 820 || !elements.workspaceGrid) return;
-    const maxSidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, window.innerWidth * 0.42);
+    const maxSidebarWidth = getMaxSidebarWidth();
     state.layout.sidebarWidth = Math.min(maxSidebarWidth, Math.max(LAYOUT_MIN_SIDEBAR, state.layout.sidebarWidth));
     const gridWidth = elements.workspaceGrid.getBoundingClientRect().width;
     const maxFeedWidth = Math.max(LAYOUT_MIN_FEED, gridWidth - LAYOUT_SPLITTER_SIZE - DETAIL_MIN_WIDTH);
@@ -212,7 +235,7 @@
     if (window.innerWidth <= 820) return;
     if (kind === "sidebar") {
       const frameRect = elements.appFrame.getBoundingClientRect();
-      const maxSidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, window.innerWidth * 0.42);
+      const maxSidebarWidth = getMaxSidebarWidth();
       state.layout.sidebarWidth = Math.min(maxSidebarWidth, Math.max(LAYOUT_MIN_SIDEBAR, clientX - frameRect.left - LAYOUT_SPLITTER_SIZE / 2));
       applyLayout();
       clampLayoutToViewport();
@@ -991,7 +1014,7 @@
       if (state.selectionMode) card.classList.add("is-selection-mode");
       if (state.quickPasteMode && index === state.quickPasteIndex) card.classList.add("is-quick-selected");
       const sourceMarkup = state.notificationSettings.showSourceApp ? `<small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small>` : "";
-      card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small>${sourceMarkup}<span class="feed-tags">${tags}</span></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
+      card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button" aria-label="打开 ${escapeHtml(entry.title)}"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small>${sourceMarkup}<span class="feed-tags">${tags}</span></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
       card.querySelector(".entry-select").addEventListener("change", (event) => toggleEntrySelection(entry.id, event));
       card.querySelector(".feed-card-main").addEventListener("click", (event) => {
         // A native button can receive focus after click in WebView2. On some
@@ -1871,7 +1894,10 @@
       cancelFeedScrollGuard();
       return;
     }
-    lockFeedScrollPosition();
+    // Pointer and mouse events can both reach this capture handler for one
+    // click. Keep the first position; re-locking on mousedown can capture the
+    // top after WebView2 has already performed its focus scroll.
+    if (state.feedScrollLock === null) lockFeedScrollPosition();
     // Prevent both pointer and mouse focus steps. WebView2 can dispatch either
     // path first, and a focused native button may scroll the feed to the top.
     if ((event.type === "pointerdown" && event.isPrimary && event.button === 0)
