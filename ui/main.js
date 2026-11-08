@@ -190,8 +190,9 @@
   }
 
   function startLayoutResize(kind, event) {
-    if (window.innerWidth <= 820) return;
+    if (window.innerWidth <= 820 || event.button !== 0) return;
     event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     document.body.classList.add("is-resizing");
     const move = (moveEvent) => resizeLayout(kind, moveEvent.clientX);
     const finish = () => {
@@ -883,7 +884,7 @@
     elements.inboxCount.textContent = String(state.entries.length);
     elements.inboxCount.title = `普通记录 ${ordinaryCount}/100；固定记录 ${pinnedCount} 条不受数量上限影响`;
     elements.feedCaption.textContent = state.entries.length
-      ? `普通记录 ${ordinaryCount}/100 · 固定记录 ${pinnedCount} 条不受上限影响`
+      ? `普通记录 ${ordinaryCount}/100 · 超出后自动移除最旧未固定记录 · 固定记录 ${pinnedCount} 条不受上限影响`
       : "复制内容后会自动出现在这里";
     elements.emptyFeed.hidden = entries.length > 0;
     elements.bulkActions.hidden = !state.selectionMode;
@@ -1171,7 +1172,9 @@
   function selectEntry(id) {
     const entry = state.entries.find((candidate) => candidate.id === id);
     if (!entry) return;
-    const feedScrollTop = state.feedScrollTop;
+    // Read the live position here. On Windows, the pointer/focus sequence can
+    // update scrollTop after the last scroll event but before click fires.
+    const feedScrollTop = rememberFeedScrollPosition();
     state.selectedId = id;
     state.selectedEntry = entry;
     renderTagEditor(entry);
@@ -1755,7 +1758,12 @@
     // Windows WebView can scroll a focused button before its click handler
     // runs. Capture the position before focus changes so selecting a card
     // does not unexpectedly jump the inbox back to the top.
-    if (event.target.closest(".feed-card")) lockFeedScrollPosition();
+    if (event.target.closest(".feed-card")) {
+      lockFeedScrollPosition();
+      // Prevent the WebView's native focus scrolling. The click event still
+      // selects the card, while the inbox remains at the user's position.
+      if (event.target.closest(".feed-card-main")) event.preventDefault();
+    }
   }, true);
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
