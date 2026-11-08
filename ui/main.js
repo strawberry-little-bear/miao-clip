@@ -16,9 +16,11 @@
   // fit reliably in the narrowest desktop windows. Use the stacked layout
   // before the browser has to create a hidden horizontal scroll area.
   const LAYOUT_DESKTOP_MIN_WIDTH = 840;
-  // Cover only the short WebView focus transition after a card click. A long
-  // lock would also override a user's intentional scroll immediately after.
-  const FEED_SCROLL_LOCK_MS = 900;
+  // Cover the native WebView focus transition after a card click. The restore
+  // timers are cancelled as soon as the user starts scrolling, so this can
+  // safely cover slower Windows WebView2 focus transitions as well.
+  const FEED_SCROLL_LOCK_MS = 1400;
+  const FEED_SCROLL_RESTORE_DELAYS = [0, 16, 48, 140, 320, 640];
 
   const invoke = window.__TAURI__?.core?.invoke;
   const listen = window.__TAURI__?.event?.listen;
@@ -977,12 +979,10 @@
       }, delay);
       state.feedRestoreTimers.push(timer);
     };
-    // WebView2 can apply a native focus scroll just after click dispatch. A
-    // few short retries cover that transition without keeping a stale restore
-    // alive long enough to override the user's next wheel or scrollbar drag.
-    schedule(0);
-    schedule(48);
-    schedule(140);
+    // WebView2 can apply a native focus scroll after click dispatch. Retry
+    // through the full focus transition; wheel, touch, pointer and keyboard
+    // handlers cancel these timers before a deliberate user scroll is lost.
+    FEED_SCROLL_RESTORE_DELAYS.forEach(schedule);
   }
 
   function renderFeed() {
@@ -1924,6 +1924,14 @@
 
   elements.feedColumn.addEventListener("pointerdown", guardFeedCardFocus, true);
   elements.feedColumn.addEventListener("mousedown", guardFeedCardFocus, true);
+  elements.feedColumn.addEventListener("click", (event) => {
+    // Some Windows WebView2 builds omit the expected pointer/mouse sequence
+    // for a synthetic click. Capture the position at the last possible point
+    // before the card handler updates the detail panel.
+    if (event.detail > 0 && event.target.closest(".feed-card-main") && state.feedScrollLock === null) {
+      lockFeedScrollPosition();
+    }
+  }, true);
   elements.feedColumn.addEventListener("focusin", (event) => {
     const cardMain = event.target.closest(".feed-card-main");
     if (!cardMain || state.feedScrollLock === null) return;

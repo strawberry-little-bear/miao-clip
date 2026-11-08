@@ -24,11 +24,11 @@ button, input { font: inherit; }
 button { max-width: 100%; cursor: pointer; }
 .app-frame { display: grid; grid-template-columns: minmax(190px, var(--sidebar-width)) var(--splitter-size) minmax(0, 1fr); width: 100%; min-height: 100vh; }
 .sidebar { display: flex; min-width: 0; flex-direction: column; padding: 30px 16px 18px; border-right: 1px solid var(--line); background: #f1f0eb; }
-.layout-splitter { position: relative; z-index: 2; width: var(--splitter-size); min-width: var(--splitter-size); cursor: col-resize; touch-action: none; user-select: none; background: rgba(215, 225, 221, 0.16); }
-.layout-splitter::after { position: absolute; top: 0; bottom: 0; left: 6px; width: 4px; border-radius: 3px; background: #c9d8d3; content: ""; transition: background 120ms ease, width 120ms ease, left 120ms ease; }
-.layout-splitter::before { position: absolute; top: 50%; left: 5px; z-index: 1; width: 6px; height: 28px; border-top: 2px dotted #819f98; border-bottom: 2px dotted #819f98; content: ""; opacity: 0.65; transform: translateY(-50%); transition: opacity 120ms ease; }
-.layout-splitter:hover::after, .layout-splitter:focus-visible::after, .is-resizing .layout-splitter::after { left: 4px; width: 8px; background: #9eb9b5; }
-.layout-splitter:hover::before, .layout-splitter:focus-visible::before, .is-resizing .layout-splitter::before { opacity: 1; }
+.layout-splitter { position: relative; z-index: 2; width: var(--splitter-size); min-width: var(--splitter-size); cursor: col-resize; touch-action: none; user-select: none; background: rgba(215, 225, 221, 0.2); }
+.layout-splitter::after { position: absolute; top: 0; bottom: 0; left: 6px; width: 4px; border-radius: 3px; background: #b8cec8; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55); content: ""; transition: background 120ms ease, width 120ms ease, left 120ms ease; }
+.layout-splitter::before { position: absolute; top: 50%; left: 4px; z-index: 1; width: 8px; height: 32px; border-top: 2px dotted #668c83; border-bottom: 2px dotted #668c83; content: ""; opacity: 0.9; transform: translateY(-50%); transition: opacity 120ms ease, border-color 120ms ease; }
+.layout-splitter:hover::after, .layout-splitter:focus-visible::after, .is-resizing .layout-splitter::after { left: 4px; width: 8px; background: #7fa8a0; }
+.layout-splitter:hover::before, .layout-splitter:focus-visible::before, .is-resizing .layout-splitter::before { border-color: #356d78; opacity: 1; }
 .layout-splitter:focus-visible { outline: 0; background: rgba(53, 109, 120, 0.08); }
 .is-resizing, .is-resizing * { cursor: col-resize !important; user-select: none !important; }
 .brand-lockup { display: flex; align-items: center; gap: 11px; padding: 0 11px 34px; }
@@ -74,7 +74,7 @@ h2 { font-size: 17px; font-weight: 760; }
 .layout-reset-button:hover { border-color: #a8bfba; color: var(--blue); background: #f7fbfa; }
 .workspace-grid { display: grid; grid-template-columns: minmax(280px, var(--feed-width)) var(--splitter-size) minmax(280px, 1fr); width: 100%; max-width: none; margin: 0 auto; overflow-anchor: none; }
 .feed-column, .detail-column { min-width: 0; }
-.feed-column { overflow-anchor: none; }
+.feed-column { overflow-anchor: none; scroll-behavior: auto; }
 .section-bar { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 12px; min-height: 58px; }
 .section-bar > div { min-width: 0; }
 .section-bar p { margin-top: 6px; color: var(--muted); font-size: 12px; }
