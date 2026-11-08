@@ -41,6 +41,7 @@
     revealTimer: null,
     quickPasteMode: false,
     quickPasteIndex: 0,
+    feedScrollTop: 0,
     selectionMode: false,
     selectedIds: new Set(),
     layout: {
@@ -833,8 +834,25 @@
     elements.dateTo.hidden = !custom;
   }
 
+  function rememberFeedScrollPosition() {
+    if (elements.feedColumn) state.feedScrollTop = elements.feedColumn.scrollTop;
+    return state.feedScrollTop;
+  }
+
+  function restoreFeedScrollPosition(scrollTop = state.feedScrollTop) {
+    if (!elements.feedColumn) return;
+    state.feedScrollTop = Math.max(0, scrollTop || 0);
+    elements.feedColumn.scrollTop = state.feedScrollTop;
+    window.requestAnimationFrame(() => {
+      elements.feedColumn.scrollTop = state.feedScrollTop;
+      window.requestAnimationFrame(() => {
+        elements.feedColumn.scrollTop = state.feedScrollTop;
+      });
+    });
+  }
+
   function renderFeed() {
-    const feedScrollTop = elements.feedColumn?.scrollTop || 0;
+    const feedScrollTop = rememberFeedScrollPosition();
     syncSourceFilter();
     syncTagFilter();
     const entries = visibleEntries();
@@ -885,10 +903,7 @@
       card.querySelector(".delete-button").addEventListener("click", (event) => deleteEntry(entry.id, event));
       elements.feed.append(card);
     });
-    elements.feedColumn.scrollTop = feedScrollTop;
-    window.requestAnimationFrame(() => {
-      elements.feedColumn.scrollTop = feedScrollTop;
-    });
+    restoreFeedScrollPosition(feedScrollTop);
   }
 
   function enterSelectionMode() {
@@ -1133,7 +1148,7 @@
   function selectEntry(id) {
     const entry = state.entries.find((candidate) => candidate.id === id);
     if (!entry) return;
-    const feedScrollTop = elements.feedColumn?.scrollTop || 0;
+    const feedScrollTop = state.feedScrollTop;
     state.selectedId = id;
     state.selectedEntry = entry;
     renderTagEditor(entry);
@@ -1189,9 +1204,7 @@
       elements.resultPreview.textContent = entry.text || "还没有处理结果。";
     }
     renderFeed();
-    window.requestAnimationFrame(() => {
-      elements.feedColumn.scrollTop = feedScrollTop;
-    });
+    restoreFeedScrollPosition(feedScrollTop);
   }
 
   function focusCapturedEntry(id) {
@@ -1712,6 +1725,15 @@
   elements.exportHistory.addEventListener("click", requestHistoryExport);
   elements.importHistory.addEventListener("click", requestHistoryImport);
   elements.refreshDiagnostics.addEventListener("click", loadPlatformDiagnostics);
+  elements.feedColumn.addEventListener("scroll", () => {
+    state.feedScrollTop = elements.feedColumn.scrollTop;
+  }, { passive: true });
+  elements.feedColumn.addEventListener("pointerdown", (event) => {
+    // Windows WebView can scroll a focused button before its click handler
+    // runs. Capture the position before focus changes so selecting a card
+    // does not unexpectedly jump the inbox back to the top.
+    if (event.target.closest(".feed-card")) rememberFeedScrollPosition();
+  }, true);
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
   }
