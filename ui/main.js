@@ -2,7 +2,9 @@
   "use strict";
 
   const HISTORY_ENTRY_LIMIT = 100;
-  const LAYOUT_SPLITTER_SIZE = 12;
+  // Keep the math in sync with the 16px CSS hit area. A stale value here
+  // makes the feed/detail boundary stop a few pixels away from the pointer.
+  const LAYOUT_SPLITTER_SIZE = 16;
   const DETAIL_MIN_WIDTH = 280;
   const LAYOUT_STORAGE_KEY = "miaoclip-layout-v1";
   const DEFAULT_LAYOUT = Object.freeze({ sidebarWidth: 226, feedWidth: 560 });
