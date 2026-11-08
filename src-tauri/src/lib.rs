@@ -800,12 +800,34 @@ fn sync_tray_controls(app: &AppHandle, capture_state: &CaptureState) {
 }
 
 #[cfg(desktop)]
+#[cfg(target_os = "macos")]
+fn activate_macos_application(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .run_on_main_thread(|| {
+            use objc2::MainThreadMarker;
+            use objc2_app_kit::NSApplication;
+
+            // Tauri can show and focus a window without activating the
+            // application when the request comes from a non-focusable toast
+            // window. Activate AppKit on its main thread so notification
+            // clicks bring MiaoClip to the foreground.
+            if let Some(marker) = MainThreadMarker::new() {
+                NSApplication::sharedApplication(marker).activate();
+            }
+        })
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(desktop)]
 fn show_main_window(app: &AppHandle) -> Result<(), String> {
     let main = app
         .get_webview_window("main")
         .ok_or_else(|| "主窗口不可用。".to_string())?;
     main.show().map_err(|error| error.to_string())?;
-    main.set_focus().map_err(|error| error.to_string())
+    main.set_focus().map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    activate_macos_application(&main)?;
+    Ok(())
 }
 
 #[cfg(desktop)]
