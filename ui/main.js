@@ -42,6 +42,8 @@
     quickPasteMode: false,
     quickPasteIndex: 0,
     feedScrollTop: 0,
+    feedScrollLock: null,
+    feedScrollLockTimer: null,
     selectionMode: false,
     selectedIds: new Set(),
     layout: {
@@ -167,8 +169,8 @@
   function loadLayout() {
     try {
       const stored = JSON.parse(window.localStorage.getItem(LAYOUT_STORAGE_KEY) || "null");
-      if (Number.isFinite(stored?.sidebarWidth)) state.layout.sidebarWidth = Math.min(360, Math.max(190, stored.sidebarWidth));
-      if (Number.isFinite(stored?.feedWidth)) state.layout.feedWidth = Math.min(800, Math.max(280, stored.feedWidth));
+      if (Number.isFinite(stored?.sidebarWidth)) state.layout.sidebarWidth = Math.min(420, Math.max(190, stored.sidebarWidth));
+      if (Number.isFinite(stored?.feedWidth)) state.layout.feedWidth = Math.min(1000, Math.max(280, stored.feedWidth));
     } catch (_error) {
       // Use the defaults when local storage contains invalid or unavailable data.
     }
@@ -179,13 +181,13 @@
     if (window.innerWidth <= 820) return;
     if (kind === "sidebar") {
       const frameRect = elements.appFrame.getBoundingClientRect();
-      state.layout.sidebarWidth = Math.min(360, Math.max(190, clientX - frameRect.left));
+      state.layout.sidebarWidth = Math.min(420, Math.max(190, clientX - frameRect.left));
       applyLayout();
       return;
     }
     const gridRect = elements.workspaceGrid.getBoundingClientRect();
-    const maxFeedWidth = Math.max(280, gridRect.width - 340);
-    state.layout.feedWidth = Math.min(800, Math.max(280, Math.min(maxFeedWidth, clientX - gridRect.left)));
+    const maxFeedWidth = Math.max(280, gridRect.width - 330);
+    state.layout.feedWidth = Math.min(1000, Math.max(280, Math.min(maxFeedWidth, clientX - gridRect.left)));
     applyLayout();
   }
 
@@ -210,8 +212,8 @@
   function nudgeLayout(kind, direction) {
     if (window.innerWidth <= 820) return;
     const amount = 16 * direction;
-    if (kind === "sidebar") state.layout.sidebarWidth = Math.min(360, Math.max(190, state.layout.sidebarWidth + amount));
-    else state.layout.feedWidth = Math.min(800, Math.max(280, state.layout.feedWidth + amount));
+    if (kind === "sidebar") state.layout.sidebarWidth = Math.min(420, Math.max(190, state.layout.sidebarWidth + amount));
+    else state.layout.feedWidth = Math.min(1000, Math.max(280, state.layout.feedWidth + amount));
     applyLayout();
     saveLayout();
   }
@@ -835,18 +837,36 @@
   }
 
   function rememberFeedScrollPosition() {
+    if (state.feedScrollLock !== null) return state.feedScrollLock;
     if (elements.feedColumn) state.feedScrollTop = elements.feedColumn.scrollTop;
     return state.feedScrollTop;
   }
 
+  function lockFeedScrollPosition() {
+    const scrollTop = elements.feedColumn?.scrollTop || 0;
+    state.feedScrollTop = scrollTop;
+    state.feedScrollLock = scrollTop;
+    window.clearTimeout(state.feedScrollLockTimer);
+    state.feedScrollLockTimer = window.setTimeout(() => {
+      state.feedScrollLock = null;
+    }, 260);
+    return scrollTop;
+  }
+
   function restoreFeedScrollPosition(scrollTop = state.feedScrollTop) {
     if (!elements.feedColumn) return;
-    state.feedScrollTop = Math.max(0, scrollTop || 0);
-    elements.feedColumn.scrollTop = state.feedScrollTop;
+    const target = Math.max(0, scrollTop || 0);
+    state.feedScrollTop = target;
+    const apply = () => {
+      elements.feedColumn.scrollTop = target;
+    };
+    apply();
     window.requestAnimationFrame(() => {
-      elements.feedColumn.scrollTop = state.feedScrollTop;
+      apply();
       window.requestAnimationFrame(() => {
-        elements.feedColumn.scrollTop = state.feedScrollTop;
+        apply();
+        window.setTimeout(apply, 48);
+        window.setTimeout(apply, 140);
       });
     });
   }
@@ -860,8 +880,13 @@
     state.selectedIds.forEach((id) => {
       if (!entryIds.has(id)) state.selectedIds.delete(id);
     });
+    const ordinaryCount = state.entries.filter((entry) => !entry.pinned).length;
+    const pinnedCount = state.entries.length - ordinaryCount;
     elements.inboxCount.textContent = String(state.entries.length);
-    elements.inboxCount.title = "普通记录上限为 100 条，固定记录不受数量上限影响";
+    elements.inboxCount.title = `普通记录 ${ordinaryCount}/100；固定记录 ${pinnedCount} 条不受数量上限影响`;
+    elements.feedCaption.textContent = state.entries.length
+      ? `普通记录 ${ordinaryCount}/100 · 固定记录 ${pinnedCount} 条不受上限影响`
+      : "复制内容后会自动出现在这里";
     elements.emptyFeed.hidden = entries.length > 0;
     elements.bulkActions.hidden = !state.selectionMode;
     elements.enterSelection.hidden = state.selectionMode;
@@ -1726,13 +1751,13 @@
   elements.importHistory.addEventListener("click", requestHistoryImport);
   elements.refreshDiagnostics.addEventListener("click", loadPlatformDiagnostics);
   elements.feedColumn.addEventListener("scroll", () => {
-    state.feedScrollTop = elements.feedColumn.scrollTop;
+    if (state.feedScrollLock === null) state.feedScrollTop = elements.feedColumn.scrollTop;
   }, { passive: true });
   elements.feedColumn.addEventListener("pointerdown", (event) => {
     // Windows WebView can scroll a focused button before its click handler
     // runs. Capture the position before focus changes so selecting a card
     // does not unexpectedly jump the inbox back to the top.
-    if (event.target.closest(".feed-card")) rememberFeedScrollPosition();
+    if (event.target.closest(".feed-card")) lockFeedScrollPosition();
   }, true);
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
