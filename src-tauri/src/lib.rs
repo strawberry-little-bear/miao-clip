@@ -158,6 +158,7 @@ fn stable_source_app_name(previous: &str, current: &str) -> String {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn source_app_after_sampling(first_frontmost: &str, current_frontmost: &str) -> String {
     if normalize_source_app_name(first_frontmost.to_string())
         == normalize_source_app_name(current_frontmost.to_string())
@@ -968,6 +969,9 @@ fn take_source_app_hint(
     let Ok(mut hints) = hint.lock() else {
         return None;
     };
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = target_change_count;
 
     while let Some(front) = hints.front() {
         if front.observed_at.elapsed() > Duration::from_secs(1) {
@@ -3025,14 +3029,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin({
-            let mut builder = tauri_plugin_autostart::Builder::new()
+            let builder = tauri_plugin_autostart::Builder::new()
                 .app_name("MiaoClip")
                 .args([AUTOSTART_ARGUMENT]);
             #[cfg(target_os = "macos")]
-            {
-                builder =
-                    builder.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
-            }
+            let builder =
+                builder.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
             builder.build()
         })
         .setup(|app| {
