@@ -5,12 +5,12 @@
   // Keep the math in sync with the 16px CSS hit area. A stale value here
   // makes the feed/detail boundary stop a few pixels away from the pointer.
   const LAYOUT_SPLITTER_SIZE = 16;
-  const DETAIL_MIN_WIDTH = 280;
+  const DETAIL_MIN_WIDTH = 260;
   const LAYOUT_STORAGE_KEY = "miaoclip-layout-v1";
   const DEFAULT_LAYOUT = Object.freeze({ sidebarWidth: 226, feedWidth: 560 });
   const LAYOUT_MIN_SIDEBAR = 190;
   const LAYOUT_MAX_SIDEBAR = 420;
-  const LAYOUT_MIN_FEED = 280;
+  const LAYOUT_MIN_FEED = 260;
   const LAYOUT_MAX_FEED = 1000;
   // Two 280px content columns plus the splitter and workspace padding do not
   // fit reliably in the narrowest desktop windows. Use the stacked layout
@@ -1027,7 +1027,7 @@
       if (state.selectionMode) card.classList.add("is-selection-mode");
       if (state.quickPasteMode && index === state.quickPasteIndex) card.classList.add("is-quick-selected");
       const sourceMarkup = state.notificationSettings.showSourceApp ? `<small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small>` : "";
-      card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button" aria-label="打开 ${escapeHtml(entry.title)}"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small>${sourceMarkup}<span class="feed-tags">${tags}</span></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
+      card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button" tabindex="0" aria-label="打开 ${escapeHtml(entry.title)}"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small>${sourceMarkup}<span class="feed-tags">${tags}</span></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
       card.querySelector(".entry-select").addEventListener("change", (event) => toggleEntrySelection(entry.id, event));
       card.querySelector(".feed-card-main").addEventListener("click", (event) => {
         // A native button can receive focus after click in WebView2. On some
@@ -1919,6 +1919,16 @@
     if ((event.type === "pointerdown" && event.isPrimary && event.button === 0)
       || (event.type === "mousedown" && event.button === 0)) {
       event.preventDefault();
+      // Keep the card keyboard-focusable, but remove it from the mouse
+      // activation path before WebView2 can focus it. The restored tabindex
+      // lets keyboard users continue to tab through cards after the click.
+      const previousTabIndex = cardMain.getAttribute("tabindex") || "0";
+      cardMain.setAttribute("tabindex", "-1");
+      window.setTimeout(() => {
+        if (cardMain.isConnected && cardMain !== document.activeElement) {
+          cardMain.setAttribute("tabindex", previousTabIndex);
+        }
+      }, 0);
     }
   }
 

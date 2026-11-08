@@ -72,7 +72,7 @@ h2 { font-size: 17px; font-weight: 760; }
 .read-button:hover, .empty-action:hover { background: #2a5c65; }
 .layout-reset-button { height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; color: #66706b; background: var(--paper); font-size: 11px; }
 .layout-reset-button:hover { border-color: #a8bfba; color: var(--blue); background: #f7fbfa; }
-.workspace-grid { display: grid; grid-template-columns: minmax(280px, var(--feed-width)) var(--splitter-size) minmax(280px, 1fr); width: 100%; max-width: none; margin: 0 auto; overflow-anchor: none; }
+.workspace-grid { display: grid; grid-template-columns: minmax(260px, var(--feed-width)) var(--splitter-size) minmax(260px, 1fr); width: 100%; max-width: none; margin: 0 auto; overflow-anchor: none; }
 .feed-column, .detail-column { min-width: 0; }
 .feed-column { overflow-anchor: none; scroll-behavior: auto; }
 .section-bar { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 12px; min-height: 58px; }
