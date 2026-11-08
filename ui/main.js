@@ -1,6 +1,16 @@
 (() => {
   "use strict";
 
+  const HISTORY_ENTRY_LIMIT = 100;
+  const LAYOUT_SPLITTER_SIZE = 12;
+  const DETAIL_MIN_WIDTH = 280;
+  const LAYOUT_STORAGE_KEY = "miaoclip-layout-v1";
+  const DEFAULT_LAYOUT = Object.freeze({ sidebarWidth: 226, feedWidth: 560 });
+  const LAYOUT_MIN_SIDEBAR = 190;
+  const LAYOUT_MAX_SIDEBAR = 420;
+  const LAYOUT_MIN_FEED = 280;
+  const LAYOUT_MAX_FEED = 1000;
+
   const invoke = window.__TAURI__?.core?.invoke;
   const listen = window.__TAURI__?.event?.listen;
   const state = {
@@ -47,14 +57,9 @@
     selectionMode: false,
     selectedIds: new Set(),
     layout: {
-      sidebarWidth: 226,
-      feedWidth: 560,
+      ...DEFAULT_LAYOUT,
     },
   };
-  const HISTORY_ENTRY_LIMIT = 100;
-  const LAYOUT_SPLITTER_SIZE = 12;
-  const DETAIL_MIN_WIDTH = 280;
-  const LAYOUT_STORAGE_KEY = "miaoclip-layout-v1";
   const elements = {
     viewTitle: document.getElementById("view-title"),
     feedCaption: document.getElementById("feed-caption"),
@@ -169,26 +174,37 @@
   function loadLayout() {
     try {
       const stored = JSON.parse(window.localStorage.getItem(LAYOUT_STORAGE_KEY) || "null");
-      if (Number.isFinite(stored?.sidebarWidth)) state.layout.sidebarWidth = Math.min(420, Math.max(190, stored.sidebarWidth));
-      if (Number.isFinite(stored?.feedWidth)) state.layout.feedWidth = Math.min(1000, Math.max(280, stored.feedWidth));
+      if (Number.isFinite(stored?.sidebarWidth)) state.layout.sidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, Math.max(LAYOUT_MIN_SIDEBAR, stored.sidebarWidth));
+      if (Number.isFinite(stored?.feedWidth)) state.layout.feedWidth = Math.min(LAYOUT_MAX_FEED, Math.max(LAYOUT_MIN_FEED, stored.feedWidth));
     } catch (_error) {
       // Use the defaults when local storage contains invalid or unavailable data.
     }
+    clampLayoutToViewport();
     applyLayout();
+  }
+
+  function clampLayoutToViewport() {
+    if (window.innerWidth <= 820 || !elements.workspaceGrid) return;
+    const maxSidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, window.innerWidth * 0.42);
+    state.layout.sidebarWidth = Math.min(maxSidebarWidth, Math.max(LAYOUT_MIN_SIDEBAR, state.layout.sidebarWidth));
+    const gridWidth = elements.workspaceGrid.getBoundingClientRect().width;
+    const maxFeedWidth = Math.max(LAYOUT_MIN_FEED, gridWidth - LAYOUT_SPLITTER_SIZE - DETAIL_MIN_WIDTH);
+    state.layout.feedWidth = Math.min(LAYOUT_MAX_FEED, Math.max(LAYOUT_MIN_FEED, Math.min(maxFeedWidth, state.layout.feedWidth)));
   }
 
   function resizeLayout(kind, clientX) {
     if (window.innerWidth <= 820) return;
     if (kind === "sidebar") {
       const frameRect = elements.appFrame.getBoundingClientRect();
-      state.layout.sidebarWidth = Math.min(420, Math.max(190, clientX - frameRect.left - LAYOUT_SPLITTER_SIZE / 2));
+      const maxSidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, window.innerWidth * 0.42);
+      state.layout.sidebarWidth = Math.min(maxSidebarWidth, Math.max(LAYOUT_MIN_SIDEBAR, clientX - frameRect.left - LAYOUT_SPLITTER_SIZE / 2));
       applyLayout();
       return;
     }
     const gridRect = elements.workspaceGrid.getBoundingClientRect();
-    const maxFeedWidth = Math.max(280, gridRect.width - LAYOUT_SPLITTER_SIZE - DETAIL_MIN_WIDTH);
+    const maxFeedWidth = Math.max(LAYOUT_MIN_FEED, gridRect.width - LAYOUT_SPLITTER_SIZE - DETAIL_MIN_WIDTH);
     const requestedFeedWidth = clientX - gridRect.left - LAYOUT_SPLITTER_SIZE / 2;
-    state.layout.feedWidth = Math.min(1000, Math.max(280, Math.min(maxFeedWidth, requestedFeedWidth)));
+    state.layout.feedWidth = Math.min(LAYOUT_MAX_FEED, Math.max(LAYOUT_MIN_FEED, Math.min(maxFeedWidth, requestedFeedWidth)));
     applyLayout();
   }
 
@@ -211,11 +227,20 @@
     resizeLayout(kind, event.clientX);
   }
 
+  function resetLayout(kind) {
+    if (kind === "sidebar") state.layout.sidebarWidth = DEFAULT_LAYOUT.sidebarWidth;
+    else state.layout.feedWidth = DEFAULT_LAYOUT.feedWidth;
+    clampLayoutToViewport();
+    applyLayout();
+    saveLayout();
+  }
+
   function nudgeLayout(kind, direction) {
     if (window.innerWidth <= 820) return;
     const amount = 16 * direction;
-    if (kind === "sidebar") state.layout.sidebarWidth = Math.min(420, Math.max(190, state.layout.sidebarWidth + amount));
-    else state.layout.feedWidth = Math.min(1000, Math.max(280, state.layout.feedWidth + amount));
+    if (kind === "sidebar") state.layout.sidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, Math.max(LAYOUT_MIN_SIDEBAR, state.layout.sidebarWidth + amount));
+    else state.layout.feedWidth = Math.min(LAYOUT_MAX_FEED, Math.max(LAYOUT_MIN_FEED, state.layout.feedWidth + amount));
+    clampLayoutToViewport();
     applyLayout();
     saveLayout();
   }
@@ -229,7 +254,20 @@
           event.preventDefault();
           nudgeLayout(kind, event.key === "ArrowRight" ? 1 : -1);
         }
+        if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          if (kind === "sidebar") state.layout.sidebarWidth = event.key === "Home" ? LAYOUT_MIN_SIDEBAR : LAYOUT_MAX_SIDEBAR;
+          else state.layout.feedWidth = event.key === "Home" ? LAYOUT_MIN_FEED : LAYOUT_MAX_FEED;
+          clampLayoutToViewport();
+          applyLayout();
+          saveLayout();
+        }
       });
+      splitter?.addEventListener("dblclick", () => resetLayout(kind));
+    });
+    window.addEventListener("resize", () => {
+      clampLayoutToViewport();
+      applyLayout();
     });
   }
 
@@ -851,7 +889,7 @@
     window.clearTimeout(state.feedScrollLockTimer);
     state.feedScrollLockTimer = window.setTimeout(() => {
       state.feedScrollLock = null;
-    }, 650);
+    }, 900);
     return scrollTop;
   }
 
@@ -1767,7 +1805,15 @@
   elements.importHistory.addEventListener("click", requestHistoryImport);
   elements.refreshDiagnostics.addEventListener("click", loadPlatformDiagnostics);
   elements.feedColumn.addEventListener("scroll", () => {
-    if (state.feedScrollLock === null) state.feedScrollTop = elements.feedColumn.scrollTop;
+    if (state.feedScrollLock === null) {
+      state.feedScrollTop = elements.feedColumn.scrollTop;
+      return;
+    }
+    // Windows WebView can apply focus scrolling after pointerdown and even
+    // after click. Correct that late scroll event while the click lock is live.
+    if (elements.feedColumn.scrollTop !== state.feedScrollLock) {
+      elements.feedColumn.scrollTop = state.feedScrollLock;
+    }
   }, { passive: true });
   function guardFeedCardFocus(event) {
     const cardMain = event.target.closest(".feed-card-main");
