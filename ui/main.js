@@ -57,6 +57,7 @@
     feedScrollTop: 0,
     feedScrollLock: null,
     feedScrollLockTimer: null,
+    feedRestoreTimers: [],
     selectionMode: false,
     selectedIds: new Set(),
     layout: {
@@ -899,7 +900,21 @@
     return state.feedScrollTop;
   }
 
+  function clearFeedScrollRestoreTimers() {
+    state.feedRestoreTimers.forEach((timer) => window.clearTimeout(timer));
+    state.feedRestoreTimers = [];
+  }
+
+  function cancelFeedScrollGuard() {
+    clearFeedScrollRestoreTimers();
+    window.clearTimeout(state.feedScrollLockTimer);
+    state.feedScrollLockTimer = null;
+    state.feedScrollLock = null;
+    if (elements.feedColumn) state.feedScrollTop = elements.feedColumn.scrollTop;
+  }
+
   function lockFeedScrollPosition() {
+    clearFeedScrollRestoreTimers();
     const scrollTop = elements.feedColumn?.scrollTop || 0;
     state.feedScrollTop = scrollTop;
     state.feedScrollLock = scrollTop;
@@ -912,21 +927,24 @@
 
   function restoreFeedScrollPosition(scrollTop = state.feedScrollTop) {
     if (!elements.feedColumn) return;
+    clearFeedScrollRestoreTimers();
     const target = Math.max(0, scrollTop || 0);
     state.feedScrollTop = target;
     const apply = () => {
       elements.feedColumn.scrollTop = target;
     };
     apply();
-    window.requestAnimationFrame(() => {
-      apply();
-      window.requestAnimationFrame(() => {
+    const schedule = (delay) => {
+      const timer = window.setTimeout(() => {
+        state.feedRestoreTimers = state.feedRestoreTimers.filter((item) => item !== timer);
         apply();
-        window.setTimeout(apply, 48);
-        window.setTimeout(apply, 140);
-        window.setTimeout(apply, 320);
-      });
-    });
+      }, delay);
+      state.feedRestoreTimers.push(timer);
+    };
+    schedule(0);
+    schedule(48);
+    schedule(140);
+    schedule(320);
   }
 
   function renderFeed() {
@@ -1835,11 +1853,22 @@
     // Do not force scrollTop while a card click is settling. That would also
     // cancel a user's deliberate scroll; delayed restoration below handles
     // the short-lived focus jump on Windows instead.
+    if (state.feedScrollLock !== null) return;
     state.feedScrollTop = elements.feedColumn.scrollTop;
   }, { passive: true });
+  elements.feedColumn.addEventListener("wheel", cancelFeedScrollGuard, { capture: true, passive: true });
+  elements.feedColumn.addEventListener("touchstart", cancelFeedScrollGuard, { capture: true, passive: true });
+  elements.feedColumn.addEventListener("keydown", (event) => {
+    if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) {
+      cancelFeedScrollGuard();
+    }
+  }, true);
   function guardFeedCardFocus(event) {
     const cardMain = event.target.closest(".feed-card-main");
-    if (!cardMain) return;
+    if (!cardMain) {
+      cancelFeedScrollGuard();
+      return;
+    }
     lockFeedScrollPosition();
     // Prevent the native button focus step that makes WebView2 scroll the
     // clicked card into view. The click event still fires normally.
