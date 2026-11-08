@@ -73,7 +73,7 @@ struct ClipboardSnapshot {
     toast: Option<ToastPayload>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 struct HistoryEntry {
     id: String,
     text: String,
@@ -1573,7 +1573,7 @@ fn build_toast_payload(
 
 fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
     let mut seen = HashSet::new();
-    let mut normalized = Vec::with_capacity(entries.len().min(MAX_HISTORY_ENTRIES));
+    let mut normalized = Vec::with_capacity(entries.len());
 
     for mut entry in entries {
         // Keep legacy and imported records consistent with live captures.
@@ -1602,12 +1602,35 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
         if seen.insert(signature) {
             normalized.push(entry);
         }
-        if normalized.len() == MAX_HISTORY_ENTRIES {
-            break;
-        }
     }
 
+    let pinned_count = normalized.iter().filter(|entry| entry.pinned).count();
+    if normalized.len() <= MAX_HISTORY_ENTRIES {
+        return normalized;
+    }
+
+    // Keep every fixed record, then fill the remaining capacity with the
+    // newest ordinary records. The input is newest-first everywhere history
+    // is written, so this preserves the existing ordering while preventing a
+    // fixed record near the end of the file from being evicted by the cap.
+    let ordinary_capacity = MAX_HISTORY_ENTRIES.saturating_sub(pinned_count);
+    let retained_ids: HashSet<String> = normalized
+        .iter()
+        .filter(|entry| entry.pinned)
+        .map(|entry| entry.id.clone())
+        .chain(
+            normalized
+                .iter()
+                .filter(|entry| !entry.pinned)
+                .take(ordinary_capacity)
+                .map(|entry| entry.id.clone()),
+        )
+        .collect();
+
     normalized
+        .into_iter()
+        .filter(|entry| retained_ids.contains(&entry.id))
+        .collect()
 }
 
 fn prune_old_entries(
@@ -1768,9 +1791,10 @@ fn read_history_entries(app: &AppHandle) -> Result<Vec<HistoryEntry>, String> {
     };
     let history: HistoryFile =
         serde_json::from_str(&contents).map_err(|error| format!("本地历史格式无效：{error}"))?;
-    let mut entries = normalize_history(history.entries);
+    let original_entries = history.entries;
+    let mut entries = normalize_history(original_entries.clone());
     let changed = protect_sensitive_entries(&mut entries)?;
-    if changed || history.version < HISTORY_FILE_VERSION {
+    if changed || entries != original_entries || history.version < HISTORY_FILE_VERSION {
         write_history_file(app, &entries)?;
     }
     Ok(entries)
@@ -3222,6 +3246,7 @@ mod tests {
     use std::path::Path;
     use std::sync::{Arc, Mutex, RwLock};
 
+    use super::MAX_HISTORY_ENTRIES;
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
         SourceAppHint, build_toast_payload, classify_text, content_entry_id, decode_image_buffers,
@@ -3826,6 +3851,58 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].id, "1");
         assert_eq!(entries[1].id, "3");
+    }
+
+    #[test]
+    fn history_cap_keeps_newest_ordinary_entries_and_all_pinned_entries() {
+        let mut entries = (0..105)
+            .map(|index| entry(&format!("ordinary-{index}"), &format!("ordinary-{index}")))
+            .collect::<Vec<_>>();
+        entries.reverse();
+        let mut pinned = entry("pinned-old", "pinned-old");
+        pinned.pinned = true;
+        entries.push(pinned);
+
+        let normalized = normalize_history(entries);
+
+        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES);
+        assert!(normalized.iter().any(|item| item.id == "pinned-old"));
+        assert!(normalized.iter().any(|item| item.id == "ordinary-104"));
+        assert!(!normalized.iter().any(|item| item.id == "ordinary-0"));
+    }
+
+    #[test]
+    fn history_cap_allows_more_than_one_hundred_when_all_extra_entries_are_pinned() {
+        let mut entries = (0..MAX_HISTORY_ENTRIES + 3)
+            .map(|index| {
+                let mut item = entry(&format!("pinned-{index}"), &format!("pinned-{index}"));
+                item.pinned = true;
+                item
+            })
+            .collect::<Vec<_>>();
+        entries.reverse();
+
+        let normalized = normalize_history(entries);
+
+        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES + 3);
+        assert!(normalized.iter().all(|item| item.pinned));
+    }
+
+    #[test]
+    fn history_cap_drops_ordinary_entries_when_fixed_entries_fill_the_capacity() {
+        let mut entries = (0..MAX_HISTORY_ENTRIES + 1)
+            .map(|index| {
+                let mut item = entry(&format!("pinned-{index}"), &format!("pinned-{index}"));
+                item.pinned = true;
+                item
+            })
+            .collect::<Vec<_>>();
+        entries.push(entry("ordinary", "ordinary"));
+
+        let normalized = normalize_history(entries);
+
+        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES + 1);
+        assert!(normalized.iter().all(|item| item.pinned));
     }
 
     #[test]

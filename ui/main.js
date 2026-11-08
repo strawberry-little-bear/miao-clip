@@ -43,7 +43,13 @@
     quickPasteIndex: 0,
     selectionMode: false,
     selectedIds: new Set(),
+    layout: {
+      sidebarWidth: 226,
+      feedWidth: 560,
+    },
   };
+  const HISTORY_ENTRY_LIMIT = 100;
+  const LAYOUT_STORAGE_KEY = "miaoclip-layout-v1";
   const elements = {
     viewTitle: document.getElementById("view-title"),
     feedCaption: document.getElementById("feed-caption"),
@@ -118,7 +124,109 @@
     selectVisible: document.getElementById("select-visible"),
     bulkPin: document.getElementById("bulk-pin"),
     bulkDelete: document.getElementById("bulk-delete"),
+    appFrame: document.querySelector(".app-frame"),
+    workspaceGrid: document.querySelector(".workspace-grid"),
+    feedColumn: document.querySelector(".feed-column"),
+    sidebarSplitter: document.getElementById("sidebar-splitter"),
+    feedSplitter: document.getElementById("feed-splitter"),
   };
+
+  function capHistoryEntries(entries) {
+    const pinnedCount = entries.filter((entry) => entry.pinned).length;
+    if (entries.length <= HISTORY_ENTRY_LIMIT || pinnedCount >= HISTORY_ENTRY_LIMIT) return entries;
+    const ordinaryCapacity = HISTORY_ENTRY_LIMIT - pinnedCount;
+    let ordinaryKept = 0;
+    return entries.filter((entry) => {
+      if (entry.pinned) return true;
+      if (ordinaryKept >= ordinaryCapacity) return false;
+      ordinaryKept += 1;
+      return true;
+    });
+  }
+
+  function updateLayoutSplitterValue(splitter, value) {
+    splitter?.setAttribute("aria-valuenow", String(Math.round(value)));
+  }
+
+  function applyLayout() {
+    document.documentElement.style.setProperty("--sidebar-width", `${state.layout.sidebarWidth}px`);
+    document.documentElement.style.setProperty("--feed-width", `${state.layout.feedWidth}px`);
+    updateLayoutSplitterValue(elements.sidebarSplitter, state.layout.sidebarWidth);
+    updateLayoutSplitterValue(elements.feedSplitter, state.layout.feedWidth);
+  }
+
+  function saveLayout() {
+    try {
+      window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(state.layout));
+    } catch (_error) {
+      // Layout preferences are optional and may be unavailable in restricted WebViews.
+    }
+  }
+
+  function loadLayout() {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(LAYOUT_STORAGE_KEY) || "null");
+      if (Number.isFinite(stored?.sidebarWidth)) state.layout.sidebarWidth = Math.min(360, Math.max(190, stored.sidebarWidth));
+      if (Number.isFinite(stored?.feedWidth)) state.layout.feedWidth = Math.min(800, Math.max(280, stored.feedWidth));
+    } catch (_error) {
+      // Use the defaults when local storage contains invalid or unavailable data.
+    }
+    applyLayout();
+  }
+
+  function resizeLayout(kind, clientX) {
+    if (window.innerWidth <= 820) return;
+    if (kind === "sidebar") {
+      const frameRect = elements.appFrame.getBoundingClientRect();
+      state.layout.sidebarWidth = Math.min(360, Math.max(190, clientX - frameRect.left));
+      applyLayout();
+      return;
+    }
+    const gridRect = elements.workspaceGrid.getBoundingClientRect();
+    const maxFeedWidth = Math.max(280, gridRect.width - 340);
+    state.layout.feedWidth = Math.min(800, Math.max(280, Math.min(maxFeedWidth, clientX - gridRect.left)));
+    applyLayout();
+  }
+
+  function startLayoutResize(kind, event) {
+    if (window.innerWidth <= 820) return;
+    event.preventDefault();
+    document.body.classList.add("is-resizing");
+    const move = (moveEvent) => resizeLayout(kind, moveEvent.clientX);
+    const finish = () => {
+      document.body.classList.remove("is-resizing");
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+      saveLayout();
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", finish, { once: true });
+    document.addEventListener("pointercancel", finish, { once: true });
+    resizeLayout(kind, event.clientX);
+  }
+
+  function nudgeLayout(kind, direction) {
+    if (window.innerWidth <= 820) return;
+    const amount = 16 * direction;
+    if (kind === "sidebar") state.layout.sidebarWidth = Math.min(360, Math.max(190, state.layout.sidebarWidth + amount));
+    else state.layout.feedWidth = Math.min(800, Math.max(280, state.layout.feedWidth + amount));
+    applyLayout();
+    saveLayout();
+  }
+
+  function setupLayoutControls() {
+    loadLayout();
+    [[elements.sidebarSplitter, "sidebar"], [elements.feedSplitter, "feed"]].forEach(([splitter, kind]) => {
+      splitter?.addEventListener("pointerdown", (event) => startLayoutResize(kind, event));
+      splitter?.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          nudgeLayout(kind, event.key === "ArrowRight" ? 1 : -1);
+        }
+      });
+    });
+  }
 
   function fromNativeCaptureState(captureState = {}) {
     return {
@@ -726,6 +834,7 @@
   }
 
   function renderFeed() {
+    const feedScrollTop = elements.feedColumn?.scrollTop || 0;
     syncSourceFilter();
     syncTagFilter();
     const entries = visibleEntries();
@@ -734,6 +843,7 @@
       if (!entryIds.has(id)) state.selectedIds.delete(id);
     });
     elements.inboxCount.textContent = String(state.entries.length);
+    elements.inboxCount.title = "普通记录上限为 100 条，固定记录不受数量上限影响";
     elements.emptyFeed.hidden = entries.length > 0;
     elements.bulkActions.hidden = !state.selectionMode;
     elements.enterSelection.hidden = state.selectionMode;
@@ -774,6 +884,10 @@
       card.querySelector(".pin-button").addEventListener("click", (event) => togglePinned(entry.id, event));
       card.querySelector(".delete-button").addEventListener("click", (event) => deleteEntry(entry.id, event));
       elements.feed.append(card);
+    });
+    elements.feedColumn.scrollTop = feedScrollTop;
+    window.requestAnimationFrame(() => {
+      elements.feedColumn.scrollTop = feedScrollTop;
     });
   }
 
@@ -1019,6 +1133,7 @@
   function selectEntry(id) {
     const entry = state.entries.find((candidate) => candidate.id === id);
     if (!entry) return;
+    const feedScrollTop = elements.feedColumn?.scrollTop || 0;
     state.selectedId = id;
     state.selectedEntry = entry;
     renderTagEditor(entry);
@@ -1074,6 +1189,9 @@
       elements.resultPreview.textContent = entry.text || "还没有处理结果。";
     }
     renderFeed();
+    window.requestAnimationFrame(() => {
+      elements.feedColumn.scrollTop = feedScrollTop;
+    });
   }
 
   function focusCapturedEntry(id) {
@@ -1150,7 +1268,7 @@
   async function loadHistory() {
     requireTauri();
     const entries = await invoke("load_history");
-    state.entries = entries.map(normalizeEntry);
+    state.entries = capHistoryEntries(entries.map(normalizeEntry));
     elements.feedCaption.textContent = state.entries.length
       ? `已恢复 ${state.entries.length} 条本地历史`
       : "复制内容后会自动出现在这里";
@@ -1245,7 +1363,7 @@
         source_app: mergeSourceApp(existing.source_app, entry.source_app),
       }
       : entry;
-    state.entries = [storedEntry, ...state.entries.filter((item) => !sameContent(item))].slice(0, 100);
+    state.entries = capHistoryEntries([storedEntry, ...state.entries.filter((item) => !sameContent(item))]);
     state.selectedId = storedEntry.id;
     elements.feedCaption.textContent = "复制内容后会自动保存到本地历史";
     selectEntry(storedEntry.id);
@@ -1672,6 +1790,7 @@
     setMessage("");
   });
 
+  setupLayoutControls();
   if (!invoke) {
     setMessage("当前页面不是在 Tauri 应用中运行。");
     renderFeed();
