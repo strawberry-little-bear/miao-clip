@@ -25,8 +25,8 @@ button { max-width: 100%; cursor: pointer; }
 .app-frame { display: grid; grid-template-columns: minmax(190px, var(--sidebar-width)) var(--splitter-size) minmax(0, 1fr); width: 100%; min-height: 100vh; }
 .sidebar { display: flex; min-width: 0; flex-direction: column; padding: 30px 16px 18px; border-right: 1px solid var(--line); background: #f1f0eb; }
 .layout-splitter { position: relative; z-index: 2; width: var(--splitter-size); min-width: var(--splitter-size); cursor: col-resize; touch-action: none; user-select: none; background: rgba(190, 199, 192, 0.06); }
-.layout-splitter::after { position: absolute; top: 0; bottom: 0; left: 7px; width: 2px; border-radius: 3px; background: #d9ded8; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55); content: ""; transition: background 120ms ease, width 120ms ease, left 120ms ease; }
-.layout-splitter::before { position: absolute; top: 50%; left: 4px; z-index: 1; width: 8px; height: 32px; border-top: 2px dotted #b9c3ba; border-bottom: 2px dotted #b9c3ba; content: ""; opacity: 0.7; transform: translateY(-50%); transition: opacity 120ms ease, border-color 120ms ease; }
+.layout-splitter::after { position: absolute; top: 0; bottom: 0; left: 7.5px; width: 1px; border-radius: 3px; background: #e1e4df; content: ""; transition: background 120ms ease, width 120ms ease, left 120ms ease; }
+.layout-splitter::before { position: absolute; top: 50%; left: 4px; z-index: 1; width: 8px; height: 32px; border-top: 2px dotted #b9c3ba; border-bottom: 2px dotted #b9c3ba; content: ""; opacity: 0; transform: translateY(-50%); transition: opacity 120ms ease, border-color 120ms ease; }
 .layout-splitter:hover::after, .layout-splitter:focus-visible::after, .is-resizing .layout-splitter::after { left: 4px; width: 8px; background: #aeb9b0; }
 .layout-splitter:hover::before, .layout-splitter:focus-visible::before, .is-resizing .layout-splitter::before { border-color: #8d998f; opacity: 1; }
 .layout-splitter:focus-visible { outline: 0; background: rgba(125, 139, 130, 0.05); }
