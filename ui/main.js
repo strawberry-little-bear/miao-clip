@@ -959,9 +959,9 @@
     const ordinaryCount = state.entries.filter((entry) => !entry.pinned).length;
     const pinnedCount = state.entries.length - ordinaryCount;
     elements.inboxCount.textContent = String(state.entries.length);
-    elements.inboxCount.title = `普通记录 ${ordinaryCount}/100；固定记录 ${pinnedCount} 条不受数量上限影响`;
+    elements.inboxCount.title = `普通记录 ${ordinaryCount}/${HISTORY_ENTRY_LIMIT}；固定记录 ${pinnedCount} 条不受数量上限影响`;
     elements.feedCaption.textContent = state.entries.length
-      ? `普通记录 ${ordinaryCount}/100 · 超出后淘汰最旧未固定记录 · 固定记录 ${pinnedCount} 条不受上限影响`
+      ? `普通记录 ${ordinaryCount}/${HISTORY_ENTRY_LIMIT} · 超出后淘汰最旧未固定记录 · 固定记录 ${pinnedCount} 条不受上限影响`
       : "复制内容后会自动出现在这里";
     elements.emptyFeed.hidden = entries.length > 0;
     elements.bulkActions.hidden = !state.selectionMode;
@@ -1870,15 +1870,23 @@
       return;
     }
     lockFeedScrollPosition();
-    // Prevent the native button focus step that makes WebView2 scroll the
-    // clicked card into view. The click event still fires normally.
-    if (event.type === "mousedown" && event.button === 0) {
+    // Prevent both pointer and mouse focus steps. WebView2 can dispatch either
+    // path first, and a focused native button may scroll the feed to the top.
+    if ((event.type === "pointerdown" && event.isPrimary && event.button === 0)
+      || (event.type === "mousedown" && event.button === 0)) {
       event.preventDefault();
     }
   }
 
   elements.feedColumn.addEventListener("pointerdown", guardFeedCardFocus, true);
   elements.feedColumn.addEventListener("mousedown", guardFeedCardFocus, true);
+  elements.feedColumn.addEventListener("focusin", (event) => {
+    const cardMain = event.target.closest(".feed-card-main");
+    if (!cardMain || state.feedScrollLock === null) return;
+    const lockedPosition = state.feedScrollLock;
+    cardMain.blur();
+    restoreFeedScrollPosition(lockedPosition);
+  }, true);
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
   }
