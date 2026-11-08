@@ -10,7 +10,7 @@
   const LAYOUT_MAX_SIDEBAR = 420;
   const LAYOUT_MIN_FEED = 280;
   const LAYOUT_MAX_FEED = 1000;
-  const FEED_SCROLL_LOCK_MS = 1800;
+  const FEED_SCROLL_LOCK_MS = 3600;
 
   const invoke = window.__TAURI__?.core?.invoke;
   const listen = window.__TAURI__?.event?.listen;
@@ -140,6 +140,7 @@
     feedColumn: document.querySelector(".feed-column"),
     sidebarSplitter: document.getElementById("sidebar-splitter"),
     feedSplitter: document.getElementById("feed-splitter"),
+    resetLayout: document.getElementById("reset-layout"),
   };
 
   function capHistoryEntries(entries) {
@@ -925,6 +926,8 @@
         window.setTimeout(apply, 620);
         window.setTimeout(apply, 1000);
         window.setTimeout(apply, 1500);
+        window.setTimeout(apply, 2200);
+        window.setTimeout(apply, 3200);
       });
     });
   }
@@ -1824,6 +1827,13 @@
   elements.exportHistory.addEventListener("click", requestHistoryExport);
   elements.importHistory.addEventListener("click", requestHistoryImport);
   elements.refreshDiagnostics.addEventListener("click", loadPlatformDiagnostics);
+  elements.resetLayout?.addEventListener("click", () => {
+    state.layout = { ...DEFAULT_LAYOUT };
+    clampLayoutToViewport();
+    applyLayout();
+    saveLayout();
+    setMessage("已恢复工作区默认布局。", { toast: true });
+  });
   elements.feedColumn.addEventListener("scroll", () => {
     if (state.feedScrollLock === null) {
       state.feedScrollTop = elements.feedColumn.scrollTop;
@@ -1841,7 +1851,10 @@
     lockFeedScrollPosition();
     // Windows WebView may scroll a focused button before its click handler
     // runs. Prevent focus scrolling while preserving the normal click event.
-    if (event.type === "pointerdown" || event.type === "mousedown") event.preventDefault();
+    if (event.type === "pointerdown" || event.type === "mousedown") {
+      event.preventDefault();
+      cardMain.blur();
+    }
   }
 
   elements.feedColumn.addEventListener("pointerdown", guardFeedCardFocus, true);
