@@ -10,7 +10,9 @@
   const LAYOUT_MAX_SIDEBAR = 420;
   const LAYOUT_MIN_FEED = 280;
   const LAYOUT_MAX_FEED = 1000;
-  const FEED_SCROLL_LOCK_MS = 3600;
+  // Cover only the short WebView focus transition after a card click. A long
+  // lock would also override a user's intentional scroll immediately after.
+  const FEED_SCROLL_LOCK_MS = 900;
 
   const invoke = window.__TAURI__?.core?.invoke;
   const listen = window.__TAURI__?.event?.listen;
@@ -923,11 +925,6 @@
         window.setTimeout(apply, 48);
         window.setTimeout(apply, 140);
         window.setTimeout(apply, 320);
-        window.setTimeout(apply, 620);
-        window.setTimeout(apply, 1000);
-        window.setTimeout(apply, 1500);
-        window.setTimeout(apply, 2200);
-        window.setTimeout(apply, 3200);
       });
     });
   }
@@ -1835,38 +1832,24 @@
     setMessage("已恢复工作区默认布局。", { toast: true });
   });
   elements.feedColumn.addEventListener("scroll", () => {
-    if (state.feedScrollLock === null) {
-      state.feedScrollTop = elements.feedColumn.scrollTop;
-      return;
-    }
-    // Windows WebView can apply focus scrolling after pointerdown and even
-    // after click. Correct that late scroll event while the click lock is live.
-    if (elements.feedColumn.scrollTop !== state.feedScrollLock) {
-      elements.feedColumn.scrollTop = state.feedScrollLock;
-    }
+    // Do not force scrollTop while a card click is settling. That would also
+    // cancel a user's deliberate scroll; delayed restoration below handles
+    // the short-lived focus jump on Windows instead.
+    state.feedScrollTop = elements.feedColumn.scrollTop;
   }, { passive: true });
   function guardFeedCardFocus(event) {
     const cardMain = event.target.closest(".feed-card-main");
     if (!cardMain) return;
     lockFeedScrollPosition();
-    // Windows WebView may scroll a focused button before its click handler
-    // runs. Prevent focus scrolling while preserving the normal click event.
-    if (event.type === "pointerdown" || event.type === "mousedown") {
+    // Prevent the native button focus step that makes WebView2 scroll the
+    // clicked card into view. The click event still fires normally.
+    if (event.type === "mousedown" && event.button === 0) {
       event.preventDefault();
-      cardMain.blur();
     }
   }
 
   elements.feedColumn.addEventListener("pointerdown", guardFeedCardFocus, true);
   elements.feedColumn.addEventListener("mousedown", guardFeedCardFocus, true);
-  elements.feedColumn.addEventListener("focusin", (event) => {
-    if (event.target.closest(".feed-card-main") && state.feedScrollLock !== null) {
-      restoreFeedScrollPosition(state.feedScrollLock);
-    }
-  }, true);
-  elements.feedColumn.addEventListener("click", (event) => {
-    if (event.target.closest(".feed-card-main")) event.preventDefault();
-  }, true);
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
   }
