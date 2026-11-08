@@ -24,12 +24,12 @@ button, input { font: inherit; }
 button { max-width: 100%; cursor: pointer; }
 .app-frame { display: grid; grid-template-columns: minmax(190px, var(--sidebar-width)) var(--splitter-size) minmax(0, 1fr); width: 100%; min-height: 100vh; }
 .sidebar { display: flex; min-width: 0; flex-direction: column; padding: 30px 16px 18px; border-right: 1px solid var(--line); background: #f1f0eb; }
-.layout-splitter { position: relative; z-index: 2; width: var(--splitter-size); min-width: var(--splitter-size); cursor: col-resize; touch-action: none; user-select: none; background: rgba(215, 225, 221, 0.08); }
-.layout-splitter::after { position: absolute; top: 0; bottom: 0; left: 7px; width: 2px; border-radius: 3px; background: #d1d9d4; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55); content: ""; transition: background 120ms ease, width 120ms ease, left 120ms ease; }
-.layout-splitter::before { position: absolute; top: 50%; left: 4px; z-index: 1; width: 8px; height: 32px; border-top: 2px dotted #aebdb7; border-bottom: 2px dotted #aebdb7; content: ""; opacity: 0.7; transform: translateY(-50%); transition: opacity 120ms ease, border-color 120ms ease; }
-.layout-splitter:hover::after, .layout-splitter:focus-visible::after, .is-resizing .layout-splitter::after { left: 4px; width: 8px; background: #7fa8a0; }
-.layout-splitter:hover::before, .layout-splitter:focus-visible::before, .is-resizing .layout-splitter::before { border-color: #356d78; opacity: 1; }
-.layout-splitter:focus-visible { outline: 0; background: rgba(53, 109, 120, 0.04); }
+.layout-splitter { position: relative; z-index: 2; width: var(--splitter-size); min-width: var(--splitter-size); cursor: col-resize; touch-action: none; user-select: none; background: rgba(190, 199, 192, 0.06); }
+.layout-splitter::after { position: absolute; top: 0; bottom: 0; left: 7px; width: 2px; border-radius: 3px; background: #d9ded8; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55); content: ""; transition: background 120ms ease, width 120ms ease, left 120ms ease; }
+.layout-splitter::before { position: absolute; top: 50%; left: 4px; z-index: 1; width: 8px; height: 32px; border-top: 2px dotted #b9c3ba; border-bottom: 2px dotted #b9c3ba; content: ""; opacity: 0.7; transform: translateY(-50%); transition: opacity 120ms ease, border-color 120ms ease; }
+.layout-splitter:hover::after, .layout-splitter:focus-visible::after, .is-resizing .layout-splitter::after { left: 4px; width: 8px; background: #aeb9b0; }
+.layout-splitter:hover::before, .layout-splitter:focus-visible::before, .is-resizing .layout-splitter::before { border-color: #8d998f; opacity: 1; }
+.layout-splitter:focus-visible { outline: 0; background: rgba(125, 139, 130, 0.05); }
 .is-resizing, .is-resizing * { cursor: col-resize !important; user-select: none !important; }
 .brand-lockup { display: flex; align-items: center; gap: 11px; padding: 0 11px 34px; }
 .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #d1b65b; border-radius: 10px; color: #544613; background: var(--yellow); font-weight: 800; }
@@ -71,7 +71,7 @@ h2 { font-size: 17px; font-weight: 760; }
 .read-button, .empty-action { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 13px; border: 1px solid #2d6069; border-radius: 7px; color: #fff; background: #356d78; font-size: 12px; font-weight: 700; }
 .read-button:hover, .empty-action:hover { background: #2a5c65; }
 .layout-reset-button { height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; color: #66706b; background: var(--paper); font-size: 11px; }
-.layout-reset-button:hover { border-color: #a8bfba; color: var(--blue); background: #f7fbfa; }
+.layout-reset-button:hover { border-color: #b9c2ba; color: #596b5f; background: #f7f8f3; }
 .workspace-grid { display: grid; grid-template-columns: minmax(260px, var(--feed-width)) var(--splitter-size) minmax(260px, 1fr); width: 100%; max-width: none; margin: 0 auto; overflow-anchor: none; }
 .feed-column, .detail-column { min-width: 0; }
 .feed-column { overflow-anchor: none; scroll-behavior: auto; }

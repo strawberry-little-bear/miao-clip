@@ -3589,6 +3589,17 @@ mod tests {
     }
 
     #[test]
+    fn protected_history_detection_accepts_masked_password_with_secret_reference() {
+        let mut masked = entry("masked-password", "");
+        masked.title = "敏感信息".to_string();
+        masked.category = "password".to_string();
+        masked.secret_ref = Some(sensitive_secret_ref(&masked.id));
+
+        assert!(masked.text.is_empty());
+        assert!(is_protected_history_entry(&masked));
+    }
+
+    #[test]
     fn recognizes_existing_secure_item_errors_case_insensitively() {
         assert!(is_existing_secure_item_error(
             &"The specified item already exists."
