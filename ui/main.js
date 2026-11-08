@@ -218,6 +218,8 @@
     const requestedFeedWidth = clientX - gridRect.left - LAYOUT_SPLITTER_SIZE / 2;
     state.layout.feedWidth = Math.min(LAYOUT_MAX_FEED, Math.max(LAYOUT_MIN_FEED, Math.min(maxFeedWidth, requestedFeedWidth)));
     applyLayout();
+    clampLayoutToViewport();
+    applyLayout();
   }
 
   function startLayoutResize(kind, event) {
@@ -972,12 +974,15 @@
       card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small>${sourceMarkup}<span class="feed-tags">${tags}</span></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
       card.querySelector(".entry-select").addEventListener("change", (event) => toggleEntrySelection(entry.id, event));
       card.querySelector(".feed-card-main").addEventListener("click", (event) => {
+        // A native button can receive focus after click in WebView2. On some
+        // Windows versions that focus step scrolls the feed to the top.
+        event.preventDefault();
         lockFeedScrollPosition();
         if (!state.selectionMode) {
           selectEntry(entry.id);
+          event.currentTarget.blur();
           return;
         }
-        event.preventDefault();
         if (state.selectedIds.has(entry.id)) state.selectedIds.delete(entry.id);
         else state.selectedIds.add(entry.id);
         renderFeed();
@@ -1845,6 +1850,9 @@
     if (event.target.closest(".feed-card-main") && state.feedScrollLock !== null) {
       restoreFeedScrollPosition(state.feedScrollLock);
     }
+  }, true);
+  elements.feedColumn.addEventListener("click", (event) => {
+    if (event.target.closest(".feed-card-main")) event.preventDefault();
   }, true);
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
