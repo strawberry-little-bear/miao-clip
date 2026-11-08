@@ -913,6 +913,7 @@
         : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${(entry.text || "").length} 字符`;
       const tags = (entry.tags || []).map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("");
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${protectedEntry ? " is-protected" : ""}`;
+      card.dataset.entryId = entry.id;
       if (state.selectionMode) card.classList.add("is-selection-mode");
       if (state.quickPasteMode && index === state.quickPasteIndex) card.classList.add("is-quick-selected");
       const sourceMarkup = state.notificationSettings.showSourceApp ? `<small class="feed-source">来自：${escapeHtml(entry.source_app || "未知应用")}</small>` : "";
@@ -933,6 +934,12 @@
       elements.feed.append(card);
     });
     restoreFeedScrollPosition(feedScrollTop);
+  }
+
+  function syncSelectedCard() {
+    elements.feed.querySelectorAll(".feed-card").forEach((card) => {
+      card.classList.toggle("is-selected", card.dataset.entryId === state.selectedId);
+    });
   }
 
   function enterSelectionMode() {
@@ -1234,7 +1241,10 @@
       state.resultText = entry.text || "";
       elements.resultPreview.textContent = entry.text || "还没有处理结果。";
     }
-    renderFeed();
+    // Selecting an entry only changes the detail panel and selected styling.
+    // Rebuilding every card here makes Windows WebView restore focus by
+    // scrolling the inbox to the top after a lower card is clicked.
+    syncSelectedCard();
     restoreFeedScrollPosition(feedScrollTop);
   }
 
