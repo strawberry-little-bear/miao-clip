@@ -1611,7 +1611,8 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
 
     // Keep every fixed record and the newest ordinary records. The input is
     // newest-first everywhere history is written, so fixed records never
-    // consume the ordinary-history capacity.
+    // consume the ordinary-history capacity. Older ordinary records are
+    // intentionally removed from the local history file at this point.
     let mut ordinary_kept = 0;
     normalized
         .into_iter()

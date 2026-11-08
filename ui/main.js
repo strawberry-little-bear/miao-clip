@@ -52,6 +52,8 @@
     },
   };
   const HISTORY_ENTRY_LIMIT = 100;
+  const LAYOUT_SPLITTER_SIZE = 12;
+  const DETAIL_MIN_WIDTH = 280;
   const LAYOUT_STORAGE_KEY = "miaoclip-layout-v1";
   const elements = {
     viewTitle: document.getElementById("view-title"),
@@ -179,13 +181,14 @@
     if (window.innerWidth <= 820) return;
     if (kind === "sidebar") {
       const frameRect = elements.appFrame.getBoundingClientRect();
-      state.layout.sidebarWidth = Math.min(420, Math.max(190, clientX - frameRect.left));
+      state.layout.sidebarWidth = Math.min(420, Math.max(190, clientX - frameRect.left - LAYOUT_SPLITTER_SIZE / 2));
       applyLayout();
       return;
     }
     const gridRect = elements.workspaceGrid.getBoundingClientRect();
-    const maxFeedWidth = Math.max(280, gridRect.width - 330);
-    state.layout.feedWidth = Math.min(1000, Math.max(280, Math.min(maxFeedWidth, clientX - gridRect.left)));
+    const maxFeedWidth = Math.max(280, gridRect.width - LAYOUT_SPLITTER_SIZE - DETAIL_MIN_WIDTH);
+    const requestedFeedWidth = clientX - gridRect.left - LAYOUT_SPLITTER_SIZE / 2;
+    state.layout.feedWidth = Math.min(1000, Math.max(280, Math.min(maxFeedWidth, requestedFeedWidth)));
     applyLayout();
   }
 
@@ -848,7 +851,7 @@
     window.clearTimeout(state.feedScrollLockTimer);
     state.feedScrollLockTimer = window.setTimeout(() => {
       state.feedScrollLock = null;
-    }, 260);
+    }, 650);
     return scrollTop;
   }
 
@@ -866,6 +869,8 @@
         apply();
         window.setTimeout(apply, 48);
         window.setTimeout(apply, 140);
+        window.setTimeout(apply, 320);
+        window.setTimeout(apply, 620);
       });
     });
   }
@@ -1754,15 +1759,20 @@
   elements.feedColumn.addEventListener("scroll", () => {
     if (state.feedScrollLock === null) state.feedScrollTop = elements.feedColumn.scrollTop;
   }, { passive: true });
-  elements.feedColumn.addEventListener("pointerdown", (event) => {
-    // Windows WebView can scroll a focused button before its click handler
-    // runs. Capture the position before focus changes so selecting a card
-    // does not unexpectedly jump the inbox back to the top.
-    if (event.target.closest(".feed-card")) {
-      lockFeedScrollPosition();
-      // Prevent the WebView's native focus scrolling. The click event still
-      // selects the card, while the inbox remains at the user's position.
-      if (event.target.closest(".feed-card-main")) event.preventDefault();
+  function guardFeedCardFocus(event) {
+    const cardMain = event.target.closest(".feed-card-main");
+    if (!cardMain) return;
+    lockFeedScrollPosition();
+    // Windows WebView may scroll a focused button before its click handler
+    // runs. Prevent focus scrolling while preserving the normal click event.
+    if (event.type === "pointerdown" || event.type === "mousedown") event.preventDefault();
+  }
+
+  elements.feedColumn.addEventListener("pointerdown", guardFeedCardFocus, true);
+  elements.feedColumn.addEventListener("mousedown", guardFeedCardFocus, true);
+  elements.feedColumn.addEventListener("focusin", (event) => {
+    if (event.target.closest(".feed-card-main") && state.feedScrollLock !== null) {
+      restoreFeedScrollPosition(state.feedScrollLock);
     }
   }, true);
   function clearSelectionBeforeFilterChange() {
