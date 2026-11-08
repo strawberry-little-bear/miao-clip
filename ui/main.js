@@ -12,6 +12,10 @@
   const LAYOUT_MAX_SIDEBAR = 420;
   const LAYOUT_MIN_FEED = 280;
   const LAYOUT_MAX_FEED = 1000;
+  // Two 280px content columns plus the splitter and workspace padding do not
+  // fit reliably in the narrowest desktop windows. Use the stacked layout
+  // before the browser has to create a hidden horizontal scroll area.
+  const LAYOUT_DESKTOP_MIN_WIDTH = 840;
   // Cover only the short WebView focus transition after a card click. A long
   // lock would also override a user's intentional scroll immediately after.
   const FEED_SCROLL_LOCK_MS = 900;
@@ -161,7 +165,14 @@
   }
 
   function updateLayoutSplitterValue(splitter, value) {
-    splitter?.setAttribute("aria-valuenow", String(Math.round(value)));
+    if (!splitter) return;
+    const roundedValue = Math.round(value);
+    splitter.setAttribute("aria-valuenow", String(roundedValue));
+    splitter.setAttribute("aria-valuetext", `${roundedValue} 像素`);
+  }
+
+  function usesDesktopLayout() {
+    return window.innerWidth >= LAYOUT_DESKTOP_MIN_WIDTH;
   }
 
   function updateLayoutSplitterRanges() {
@@ -223,7 +234,7 @@
   }
 
   function clampLayoutToViewport() {
-    if (window.innerWidth <= 820 || !elements.workspaceGrid) return;
+    if (!usesDesktopLayout() || !elements.workspaceGrid) return;
     const maxSidebarWidth = getMaxSidebarWidth();
     state.layout.sidebarWidth = Math.min(maxSidebarWidth, Math.max(LAYOUT_MIN_SIDEBAR, state.layout.sidebarWidth));
     const gridWidth = elements.workspaceGrid.getBoundingClientRect().width;
@@ -232,7 +243,7 @@
   }
 
   function resizeLayout(kind, clientX) {
-    if (window.innerWidth <= 820) return;
+    if (!usesDesktopLayout()) return;
     if (kind === "sidebar") {
       const frameRect = elements.appFrame.getBoundingClientRect();
       const maxSidebarWidth = getMaxSidebarWidth();
@@ -252,7 +263,7 @@
   }
 
   function startLayoutResize(kind, event) {
-    if (window.innerWidth <= 820 || event.button !== 0) return;
+    if (!usesDesktopLayout() || event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     document.body.classList.add("is-resizing");
@@ -279,7 +290,7 @@
   }
 
   function nudgeLayout(kind, direction) {
-    if (window.innerWidth <= 820) return;
+    if (!usesDesktopLayout()) return;
     const amount = 16 * direction;
     if (kind === "sidebar") state.layout.sidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, Math.max(LAYOUT_MIN_SIDEBAR, state.layout.sidebarWidth + amount));
     else state.layout.feedWidth = Math.min(LAYOUT_MAX_FEED, Math.max(LAYOUT_MIN_FEED, state.layout.feedWidth + amount));
@@ -966,10 +977,12 @@
       }, delay);
       state.feedRestoreTimers.push(timer);
     };
+    // WebView2 can apply a native focus scroll just after click dispatch. A
+    // few short retries cover that transition without keeping a stale restore
+    // alive long enough to override the user's next wheel or scrollbar drag.
     schedule(0);
     schedule(48);
     schedule(140);
-    schedule(320);
   }
 
   function renderFeed() {
@@ -1883,6 +1896,9 @@
   }, { passive: true });
   elements.feedColumn.addEventListener("wheel", cancelFeedScrollGuard, { capture: true, passive: true });
   elements.feedColumn.addEventListener("touchstart", cancelFeedScrollGuard, { capture: true, passive: true });
+  elements.feedColumn.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest(".feed-card-main")) cancelFeedScrollGuard();
+  }, true);
   elements.feedColumn.addEventListener("keydown", (event) => {
     if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) {
       cancelFeedScrollGuard();
