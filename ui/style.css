@@ -92,8 +92,8 @@ h2 { font-size: 17px; font-weight: 760; }
 .danger-button { color: #a25448; }
 .danger-button:hover { color: #8e3d32; background: #fcedea; }
 .feed-card { display: grid; grid-template-columns: 0 minmax(0, 1fr) auto; gap: 8px; align-items: stretch; min-width: 0; padding: 0 8px 0 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
-.feed-card.is-selected { border-color: #8bb0b0; box-shadow: 0 0 0 2px rgba(53, 109, 120, 0.08); }
-.feed-card.is-quick-selected { border-color: #356d78; box-shadow: 0 0 0 3px rgba(53, 109, 120, 0.16); }
+.feed-card.is-selected { border-color: #9db7b4; background: #fcfdfb; }
+.feed-card.is-quick-selected { border-color: #6f9692; background: #f6faf8; }
 .feed-card:hover { border-color: #afc1be; }
 .selection-control { display: grid; place-items: center; width: 0; overflow: hidden; opacity: 0; transition: width 120ms ease, opacity 120ms ease; }
 .feed-card.is-selection-mode { grid-template-columns: 28px minmax(0, 1fr) auto; }
