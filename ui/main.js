@@ -10,6 +10,7 @@
   const LAYOUT_MAX_SIDEBAR = 420;
   const LAYOUT_MIN_FEED = 280;
   const LAYOUT_MAX_FEED = 1000;
+  const FEED_SCROLL_LOCK_MS = 1800;
 
   const invoke = window.__TAURI__?.core?.invoke;
   const listen = window.__TAURI__?.event?.listen;
@@ -156,11 +157,20 @@
     splitter?.setAttribute("aria-valuenow", String(Math.round(value)));
   }
 
+  function updateLayoutSplitterRanges() {
+    const maxSidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, Math.max(LAYOUT_MIN_SIDEBAR, window.innerWidth * 0.42));
+    const gridWidth = elements.workspaceGrid?.getBoundingClientRect().width || 0;
+    const maxFeedWidth = Math.max(LAYOUT_MIN_FEED, Math.min(LAYOUT_MAX_FEED, gridWidth - LAYOUT_SPLITTER_SIZE - DETAIL_MIN_WIDTH));
+    elements.sidebarSplitter?.setAttribute("aria-valuemax", String(Math.round(maxSidebarWidth)));
+    elements.feedSplitter?.setAttribute("aria-valuemax", String(Math.round(maxFeedWidth)));
+  }
+
   function applyLayout() {
     document.documentElement.style.setProperty("--sidebar-width", `${state.layout.sidebarWidth}px`);
     document.documentElement.style.setProperty("--feed-width", `${state.layout.feedWidth}px`);
     updateLayoutSplitterValue(elements.sidebarSplitter, state.layout.sidebarWidth);
     updateLayoutSplitterValue(elements.feedSplitter, state.layout.feedWidth);
+    updateLayoutSplitterRanges();
   }
 
   function saveLayout() {
@@ -198,6 +208,8 @@
       const frameRect = elements.appFrame.getBoundingClientRect();
       const maxSidebarWidth = Math.min(LAYOUT_MAX_SIDEBAR, window.innerWidth * 0.42);
       state.layout.sidebarWidth = Math.min(maxSidebarWidth, Math.max(LAYOUT_MIN_SIDEBAR, clientX - frameRect.left - LAYOUT_SPLITTER_SIZE / 2));
+      applyLayout();
+      clampLayoutToViewport();
       applyLayout();
       return;
     }
@@ -889,7 +901,7 @@
     window.clearTimeout(state.feedScrollLockTimer);
     state.feedScrollLockTimer = window.setTimeout(() => {
       state.feedScrollLock = null;
-    }, 900);
+    }, FEED_SCROLL_LOCK_MS);
     return scrollTop;
   }
 
@@ -909,6 +921,8 @@
         window.setTimeout(apply, 140);
         window.setTimeout(apply, 320);
         window.setTimeout(apply, 620);
+        window.setTimeout(apply, 1000);
+        window.setTimeout(apply, 1500);
       });
     });
   }
@@ -927,7 +941,7 @@
     elements.inboxCount.textContent = String(state.entries.length);
     elements.inboxCount.title = `普通记录 ${ordinaryCount}/100；固定记录 ${pinnedCount} 条不受数量上限影响`;
     elements.feedCaption.textContent = state.entries.length
-      ? `普通记录 ${ordinaryCount}/100 · 超出后自动移除最旧未固定记录 · 固定记录 ${pinnedCount} 条不受上限影响`
+      ? `普通记录 ${ordinaryCount}/100 · 超出后淘汰最旧未固定记录 · 固定记录 ${pinnedCount} 条不受上限影响`
       : "复制内容后会自动出现在这里";
     elements.emptyFeed.hidden = entries.length > 0;
     elements.bulkActions.hidden = !state.selectionMode;
@@ -958,6 +972,7 @@
       card.innerHTML = `<label class="selection-control"><input class="entry-select" type="checkbox" aria-label="选择 ${escapeHtml(entry.title)}"${state.selectedIds.has(entry.id) ? " checked" : ""} /></label><button class="feed-card-main" type="button"><span class="feed-icon">${icon}</span><span class="feed-card-copy"><strong>${escapeHtml(entry.title)}</strong><small>${categoryLabel(entry.category)} · ${summary}</small>${sourceMarkup}<span class="feed-tags">${tags}</span></span><span class="feed-time">${formatTime(entry.time)}</span></button><div class="feed-card-actions"><button class="pin-button${entry.pinned ? " is-pinned" : ""}" type="button" aria-label="${entry.pinned ? "取消收藏" : "收藏内容"}" aria-pressed="${entry.pinned}" title="${entry.pinned ? "取消收藏" : "收藏内容"}">${entry.pinned ? "★" : "☆"}</button><button class="delete-button" type="button" aria-label="删除内容" title="删除内容">×</button></div>`;
       card.querySelector(".entry-select").addEventListener("change", (event) => toggleEntrySelection(entry.id, event));
       card.querySelector(".feed-card-main").addEventListener("click", (event) => {
+        lockFeedScrollPosition();
         if (!state.selectionMode) {
           selectEntry(entry.id);
           return;
