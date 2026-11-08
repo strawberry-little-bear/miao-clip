@@ -135,13 +135,11 @@
   };
 
   function capHistoryEntries(entries) {
-    const pinnedCount = entries.filter((entry) => entry.pinned).length;
-    if (entries.length <= HISTORY_ENTRY_LIMIT || pinnedCount >= HISTORY_ENTRY_LIMIT) return entries;
-    const ordinaryCapacity = HISTORY_ENTRY_LIMIT - pinnedCount;
     let ordinaryKept = 0;
+    if (entries.filter((entry) => !entry.pinned).length <= HISTORY_ENTRY_LIMIT) return entries;
     return entries.filter((entry) => {
       if (entry.pinned) return true;
-      if (ordinaryKept >= ordinaryCapacity) return false;
+      if (ordinaryKept >= HISTORY_ENTRY_LIMIT) return false;
       ordinaryKept += 1;
       return true;
     });

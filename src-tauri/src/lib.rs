@@ -1604,32 +1604,27 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
         }
     }
 
-    let pinned_count = normalized.iter().filter(|entry| entry.pinned).count();
-    if normalized.len() <= MAX_HISTORY_ENTRIES {
+    let ordinary_count = normalized.iter().filter(|entry| !entry.pinned).count();
+    if ordinary_count <= MAX_HISTORY_ENTRIES {
         return normalized;
     }
 
-    // Keep every fixed record, then fill the remaining capacity with the
-    // newest ordinary records. The input is newest-first everywhere history
-    // is written, so this preserves the existing ordering while preventing a
-    // fixed record near the end of the file from being evicted by the cap.
-    let ordinary_capacity = MAX_HISTORY_ENTRIES.saturating_sub(pinned_count);
-    let retained_ids: HashSet<String> = normalized
-        .iter()
-        .filter(|entry| entry.pinned)
-        .map(|entry| entry.id.clone())
-        .chain(
-            normalized
-                .iter()
-                .filter(|entry| !entry.pinned)
-                .take(ordinary_capacity)
-                .map(|entry| entry.id.clone()),
-        )
-        .collect();
-
+    // Keep every fixed record and the newest ordinary records. The input is
+    // newest-first everywhere history is written, so fixed records never
+    // consume the ordinary-history capacity.
+    let mut ordinary_kept = 0;
     normalized
         .into_iter()
-        .filter(|entry| retained_ids.contains(&entry.id))
+        .filter(|entry| {
+            if entry.pinned {
+                true
+            } else if ordinary_kept < MAX_HISTORY_ENTRIES {
+                ordinary_kept += 1;
+                true
+            } else {
+                false
+            }
+        })
         .collect()
 }
 
@@ -3854,7 +3849,7 @@ mod tests {
     }
 
     #[test]
-    fn history_cap_keeps_newest_ordinary_entries_and_all_pinned_entries() {
+    fn history_cap_keeps_one_hundred_newest_ordinary_entries_and_all_pinned_entries() {
         let mut entries = (0..105)
             .map(|index| entry(&format!("ordinary-{index}"), &format!("ordinary-{index}")))
             .collect::<Vec<_>>();
@@ -3865,10 +3860,11 @@ mod tests {
 
         let normalized = normalize_history(entries);
 
-        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES);
+        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES + 1);
         assert!(normalized.iter().any(|item| item.id == "pinned-old"));
         assert!(normalized.iter().any(|item| item.id == "ordinary-104"));
-        assert!(!normalized.iter().any(|item| item.id == "ordinary-0"));
+        assert!(normalized.iter().any(|item| item.id == "ordinary-5"));
+        assert!(!normalized.iter().any(|item| item.id == "ordinary-4"));
     }
 
     #[test]
@@ -3889,7 +3885,7 @@ mod tests {
     }
 
     #[test]
-    fn history_cap_drops_ordinary_entries_when_fixed_entries_fill_the_capacity() {
+    fn history_cap_does_not_drop_ordinary_entries_when_fixed_entries_exceed_capacity() {
         let mut entries = (0..MAX_HISTORY_ENTRIES + 1)
             .map(|index| {
                 let mut item = entry(&format!("pinned-{index}"), &format!("pinned-{index}"));
@@ -3901,8 +3897,12 @@ mod tests {
 
         let normalized = normalize_history(entries);
 
-        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES + 1);
-        assert!(normalized.iter().all(|item| item.pinned));
+        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES + 2);
+        assert_eq!(
+            normalized.iter().filter(|item| item.pinned).count(),
+            MAX_HISTORY_ENTRIES + 1
+        );
+        assert!(normalized.iter().any(|item| item.id == "ordinary"));
     }
 
     #[test]
