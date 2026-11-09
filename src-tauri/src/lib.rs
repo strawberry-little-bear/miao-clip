@@ -3340,6 +3340,21 @@ mod tests {
     }
 
     #[test]
+    fn capture_is_suspended_for_pause_and_privacy_states() {
+        let capture_state = Arc::new(RwLock::new(CaptureState::default()));
+        assert!(!super::capture_suspended(&capture_state));
+
+        capture_state.write().unwrap().paused = true;
+        assert!(super::capture_suspended(&capture_state));
+
+        let mut state = capture_state.write().unwrap();
+        state.paused = false;
+        state.privacy_mode = true;
+        drop(state);
+        assert!(super::capture_suspended(&capture_state));
+    }
+
+    #[test]
     fn source_app_is_unknown_when_the_frontmost_app_changes_during_sampling() {
         assert_eq!(stable_source_app_name("Safari", "Safari"), "Safari");
         assert_eq!(stable_source_app_name("Safari", "Terminal"), "未知应用");
