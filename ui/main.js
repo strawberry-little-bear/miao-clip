@@ -77,6 +77,8 @@
     feedCaption: document.getElementById("feed-caption"),
     feed: document.getElementById("feed"),
     emptyFeed: document.getElementById("empty-feed"),
+    emptyFeedTitle: document.getElementById("empty-feed-title"),
+    emptyFeedDescription: document.getElementById("empty-feed-description"),
     inboxCount: document.getElementById("inbox-count"),
     searchInput: document.getElementById("search-input"),
     preview: document.getElementById("clipboard-preview"),
@@ -444,6 +446,7 @@
     const previousState = { ...state.captureState };
     state.captureState = { ...state.captureState, ...nextState };
     renderCaptureStatus();
+    renderFeed();
     elements.privacyMode.checked = state.captureState.privacyMode;
     try {
       const captureState = await invoke("set_capture_state", {
@@ -454,6 +457,7 @@
       state.captureState = fromNativeCaptureState(captureState);
       elements.privacyMode.checked = state.captureState.privacyMode;
       renderCaptureStatus();
+      renderFeed();
       setMessage(state.captureState.privacyMode
         ? "隐私模式已开启，不会捕获、保存或通知新的剪贴板内容。"
         : state.captureState.paused
@@ -463,6 +467,7 @@
       if (requestId !== state.captureStateSaveRequest) return;
       state.captureState = previousState;
       renderCaptureStatus();
+      renderFeed();
       elements.privacyMode.checked = previousState.privacyMode;
       setMessage(String(error));
     }
@@ -1002,6 +1007,22 @@
       ? `普通记录 ${ordinaryCount}/${HISTORY_ENTRY_LIMIT} · 超出后淘汰最旧未固定记录 · 固定记录 ${pinnedCount} 条不受上限影响`
       : "复制内容后会自动出现在这里";
     elements.emptyFeed.hidden = entries.length > 0;
+    if (entries.length === 0) {
+      if (state.entries.length > 0 && state.view === "favorites") {
+        elements.emptyFeedTitle.textContent = "还没有收藏内容";
+        elements.emptyFeedDescription.textContent = "收藏的记录会显示在这里。";
+      } else if (state.entries.length > 0) {
+        elements.emptyFeedTitle.textContent = "没有匹配的内容";
+        elements.emptyFeedDescription.textContent = "试试调整搜索词或筛选条件。";
+      } else {
+        elements.emptyFeedTitle.textContent = "还没有内容";
+        elements.emptyFeedDescription.textContent = state.captureState.privacyMode
+          ? "隐私模式已开启，新的剪贴板内容不会被捕获或保存。"
+          : state.captureState.paused
+            ? "自动监听已暂停。恢复监听后，复制的内容会自动出现在这里。"
+            : "自动监听已经开启。复制一段文本后，它会自动识别类型并保存到本地。";
+      }
+    }
     elements.bulkActions.hidden = !state.selectionMode;
     elements.enterSelection.hidden = state.selectionMode;
     const selectedCount = state.selectedIds.size;
