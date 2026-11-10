@@ -1161,10 +1161,19 @@ fn is_sensitive_text(text: &str) -> bool {
         "api-key",
         "access_token",
         "access-token",
+        "accesstoken",
         "client_secret",
         "client-secret",
+        "clientsecret",
         "private_key",
         "private-key",
+        "privatekey",
+        "secret_access_key",
+        "secret-access-key",
+        "secretaccesskey",
+        "secret_key",
+        "secret-key",
+        "secretkey",
         "token",
         "secret",
         "密码",
@@ -1188,7 +1197,10 @@ fn has_secret_assignment(text: &str, key: &str) -> bool {
     let mut search_start = 0;
     while let Some(offset) = text[search_start..].find(key) {
         let start = search_start + offset + key.len();
-        let remainder = text[start..].trim_start_matches(char::is_whitespace);
+        let remainder = text[start..]
+            .trim_start_matches(char::is_whitespace)
+            .trim_start_matches(|character| matches!(character, '"' | '\'' | '`'))
+            .trim_start_matches(char::is_whitespace);
         if matches!(remainder.chars().next(), Some(':' | '=' | '：')) {
             return true;
         }
@@ -3538,6 +3550,10 @@ mod tests {
         assert!(is_sensitive_text("password=correct horse battery staple"));
         assert!(is_sensitive_text("token   ：abc123"));
         assert!(is_sensitive_text("private_key = abc123"));
+        assert!(is_sensitive_text(r#"{"privateKey":"abc123"}"#));
+        assert!(is_sensitive_text(r#"{"secret_access_key":"abc123"}"#));
+        assert!(is_sensitive_text(r#"{"accessToken": "abc123"}"#));
+        assert!(is_sensitive_text("secretKey=abc123"));
         assert!(is_sensitive_text("Authorization: Bearer abc123"));
         assert!(is_sensitive_text("ghp_exampletoken"));
         assert!(is_sensitive_text("ghpExampleToken"));
