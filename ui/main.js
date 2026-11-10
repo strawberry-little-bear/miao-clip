@@ -1649,6 +1649,7 @@
         };
         elements.privacyMode.checked = state.captureState.privacyMode;
         renderCaptureStatus();
+        renderFeed();
       });
       await listen("clipboard-monitor-status", ({ payload }) => {
         const status = payload || {};
