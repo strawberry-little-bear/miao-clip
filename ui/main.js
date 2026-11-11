@@ -1470,6 +1470,10 @@
 
   async function handleClipboardSnapshot(snapshot, automatic = false) {
     if (automatic && (state.captureState.paused || state.captureState.privacyMode)) return;
+    if (automatic && snapshot.sensitivity === "sensitive" && !snapshot.persisted && snapshot.text == null) {
+      setMonitorStatus("error", "敏感记录未保存", "内容未写入本地历史，请检查系统安全存储后重试。");
+      return;
+    }
     if ((snapshot.kind === "image" && !state.notificationSettings.captureImages)
       || (snapshot.kind === "files" && !state.notificationSettings.captureFiles)) {
       if (!automatic) setMessage("此类内容的捕获已关闭，未写入历史。");

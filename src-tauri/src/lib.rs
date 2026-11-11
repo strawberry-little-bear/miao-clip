@@ -470,6 +470,7 @@ impl ClipboardHandler for ClipboardMonitor {
                     &self.notification_settings,
                     &self.capture_state,
                 );
+                mark_sensitive_persistence_failure(&mut snapshot);
                 if snapshot.sensitivity == "sensitive" {
                     // The native monitor has already persisted the secret in
                     // the system keyring. Do not send its plaintext into the
@@ -1585,6 +1586,17 @@ fn build_toast_payload(
         duration_ms: settings.duration_ms,
         fade_ms: 180,
     })
+}
+
+fn mark_sensitive_persistence_failure(snapshot: &mut ClipboardSnapshot) {
+    if snapshot.sensitivity != "sensitive" || snapshot.persisted {
+        return;
+    }
+    let Some(toast) = snapshot.toast.as_mut() else {
+        return;
+    };
+    toast.message = "已复制敏感信息：******，但未能保存到历史".to_string();
+    toast.click_action = "window".to_string();
 }
 
 fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
@@ -3264,11 +3276,11 @@ mod tests {
         history_entry_from_snapshot, history_entry_matches_snapshot, is_email_like,
         is_existing_secure_item_error, is_image_format, is_image_path,
         is_missing_secure_item_error, is_protected_history_entry, is_sensitive_text,
-        is_single_image_file, merge_source_app_name, normalize_cleanup_schedule,
-        normalize_file_path, normalize_history, normalize_notification_settings,
-        normalize_position, normalize_source_app_name, notification_title, prune_old_entries,
-        sensitive_secret_ref, source_app_after_sampling, stable_source_app_name,
-        take_source_app_hint, unavailable_image_snapshot, valid_image_id,
+        is_single_image_file, mark_sensitive_persistence_failure, merge_source_app_name,
+        normalize_cleanup_schedule, normalize_file_path, normalize_history,
+        normalize_notification_settings, normalize_position, normalize_source_app_name,
+        notification_title, prune_old_entries, sensitive_secret_ref, source_app_after_sampling,
+        stable_source_app_name, take_source_app_hint, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -4132,6 +4144,35 @@ mod tests {
         assert_eq!(history_entry.kind, "文件");
         assert_eq!(history_entry.source_app, "测试应用");
         assert_eq!(history_entry.files, files.files);
+    }
+
+    #[test]
+    fn sensitive_persistence_failure_toast_does_not_link_to_missing_entry() {
+        let settings = Arc::new(RwLock::new(NotificationSettings::default()));
+        let capture_state = Arc::new(RwLock::new(CaptureState::default()));
+        let mut snapshot = ClipboardSnapshot {
+            kind: "text",
+            sensitivity: "sensitive",
+            text: Some("password=synthetic-test-secret".to_string()),
+            preview: "敏感信息".to_string(),
+            length: 31,
+            entry_id: "sensitive-persistence-failure-test".to_string(),
+            source_app: "测试应用".to_string(),
+            persisted: false,
+            image_id: None,
+            image_width: None,
+            image_height: None,
+            files: None,
+            toast: None,
+        };
+        snapshot.toast = build_toast_payload(&snapshot, &settings, &capture_state);
+
+        mark_sensitive_persistence_failure(&mut snapshot);
+
+        let toast = snapshot.toast.expect("sensitive toast");
+        assert_eq!(toast.message, "已复制敏感信息：******，但未能保存到历史");
+        assert_eq!(toast.click_action, "window");
+        assert!(!toast.message.contains("synthetic-test-secret"));
     }
 
     #[test]
