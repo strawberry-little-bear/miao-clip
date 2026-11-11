@@ -27,6 +27,10 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   outline-offset: 2px;
   box-shadow: none;
 }
+button:focus:not(:focus-visible), select:focus:not(:focus-visible), input:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
 .app-frame { display: grid; grid-template-columns: minmax(190px, var(--sidebar-width)) var(--splitter-size) minmax(0, 1fr); width: 100%; min-height: 100vh; }
 .sidebar { display: flex; min-width: 0; flex-direction: column; padding: 30px 16px 18px; border-right: 1px solid var(--line); background: #f1f0eb; }
 .layout-splitter { position: relative; z-index: 2; width: var(--splitter-size); min-width: var(--splitter-size); cursor: col-resize; touch-action: none; user-select: none; background: transparent; }
