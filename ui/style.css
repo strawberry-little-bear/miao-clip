@@ -25,11 +25,11 @@ button { max-width: 100%; cursor: pointer; }
 .app-frame { display: grid; grid-template-columns: minmax(190px, var(--sidebar-width)) var(--splitter-size) minmax(0, 1fr); width: 100%; min-height: 100vh; }
 .sidebar { display: flex; min-width: 0; flex-direction: column; padding: 30px 16px 18px; border-right: 1px solid var(--line); background: #f1f0eb; }
 .layout-splitter { position: relative; z-index: 2; width: var(--splitter-size); min-width: var(--splitter-size); cursor: col-resize; touch-action: none; user-select: none; background: transparent; }
-.layout-splitter::after { position: absolute; top: 0; bottom: 0; left: 7.5px; width: 1px; border-radius: 3px; background: #e1e4df; content: ""; transition: background 120ms ease, width 120ms ease; }
+.layout-splitter::after { position: absolute; top: 0; bottom: 0; left: 7.5px; width: 1px; border-radius: 3px; background: #e3e5df; content: ""; transition: background 120ms ease; }
 .layout-splitter::before { position: absolute; top: 50%; left: 5.5px; z-index: 1; width: 5px; height: 26px; border-right: 1px solid #b9c3ba; border-left: 1px solid #b9c3ba; content: ""; opacity: 0; transform: translateY(-50%); transition: opacity 120ms ease, border-color 120ms ease; }
-.layout-splitter:hover::after, .layout-splitter:focus-visible::after, .is-resizing .layout-splitter::after { left: 7px; width: 2px; background: #aeb9b0; }
-.layout-splitter:hover::before, .layout-splitter:focus-visible::before, .is-resizing .layout-splitter::before { border-color: #8d998f; opacity: 1; }
-.layout-splitter:focus-visible { outline: 2px solid rgba(125, 139, 130, 0.3); outline-offset: -2px; }
+.layout-splitter:hover::after, .layout-splitter:focus-visible::after, .is-resizing .layout-splitter::after { background: #c2c9c2; }
+.layout-splitter:hover::before, .layout-splitter:focus-visible::before, .is-resizing .layout-splitter::before { border-color: #929b93; opacity: 1; }
+.layout-splitter:focus-visible { outline: 1px solid rgba(125, 139, 130, 0.24); outline-offset: -1px; }
 .is-resizing, .is-resizing * { cursor: col-resize !important; user-select: none !important; }
 .brand-lockup { display: flex; align-items: center; gap: 11px; padding: 0 11px 34px; }
 .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #d1b65b; border-radius: 10px; color: #544613; background: var(--yellow); font-weight: 800; }
