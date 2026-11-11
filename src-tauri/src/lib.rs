@@ -1069,16 +1069,16 @@ fn spawn_macos_source_tracker(
                     // sample so switching into the copying app does not
                     // incorrectly turn an otherwise valid source into an
                     // unknown app.
-                    if let Some((pending_count, _)) = pending_change.take() {
-                        if let Ok(mut hints) = source_app_hint.lock() {
-                            hints.push_back(SourceAppHint {
-                                name: default_source_app(),
-                                observed_at,
-                                change_count: pending_count,
-                            });
-                            while hints.len() > 32 {
-                                hints.pop_front();
-                            }
+                    if let Some((pending_count, _)) = pending_change.take()
+                        && let Ok(mut hints) = source_app_hint.lock()
+                    {
+                        hints.push_back(SourceAppHint {
+                            name: default_source_app(),
+                            observed_at,
+                            change_count: pending_count,
+                        });
+                        while hints.len() > 32 {
+                            hints.pop_front();
                         }
                     }
                     previous_count = current_count;
@@ -1200,7 +1200,7 @@ fn has_secret_assignment(text: &str, key: &str) -> bool {
         let start = search_start + offset + key.len();
         let remainder = text[start..]
             .trim_start_matches(char::is_whitespace)
-            .trim_start_matches(|character| matches!(character, '"' | '\'' | '`'))
+            .trim_start_matches(['"', '\'', '`'])
             .trim_start_matches(char::is_whitespace);
         if matches!(remainder.chars().next(), Some(':' | '=' | '：')) {
             return true;
@@ -4177,9 +4177,11 @@ mod tests {
 
     #[test]
     fn keeps_in_app_toast_when_desktop_toast_is_disabled() {
-        let mut notification_settings = NotificationSettings::default();
-        notification_settings.desktop = false;
-        notification_settings.in_app = true;
+        let notification_settings = NotificationSettings {
+            desktop: false,
+            in_app: true,
+            ..NotificationSettings::default()
+        };
         let settings = Arc::new(RwLock::new(notification_settings));
         let capture_state = Arc::new(RwLock::new(CaptureState::default()));
         let snapshot = ClipboardSnapshot {
