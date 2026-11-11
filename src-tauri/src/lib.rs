@@ -1607,7 +1607,7 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
         // Keep legacy and imported records consistent with live captures.
         // Internal macOS processes and the app itself are not useful sources.
         entry.source_app = normalize_source_app_name(std::mem::take(&mut entry.source_app));
-        if entry.text.trim().is_empty()
+        if !has_meaningful_clipboard_text(&entry.text)
             && entry.image_id.is_none()
             && entry.files.is_none()
             && entry.secret_ref.is_none()
@@ -3741,6 +3741,18 @@ mod tests {
             notification_title("\u{feff}\u{200b}\n 真实标题"),
             "真实标题"
         );
+    }
+
+    #[test]
+    fn normalize_history_removes_unicode_formatting_only_entries() {
+        let mut formatting_only = entry("formatting-only", "\u{200b}\u{feff}\n\u{2060}");
+        formatting_only.title = "空文本".to_string();
+        let retained = entry("retained", "实际内容");
+
+        let entries = normalize_history(vec![formatting_only, retained]);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, "retained");
     }
 
     #[test]
