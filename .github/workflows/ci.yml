@@ -35,7 +35,34 @@ jobs:
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -o Acquire::Retries=3
+          # GitHub's Ubuntu image can occasionally resolve its Azure mirror
+          # slowly. Use bounded requests and a public mirror before falling
+          # back to the kernel mirror so this step cannot consume the whole
+          # check job without running the actual checks.
+          for source in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+            if [ -f "$source" ]; then
+              sudo sed -i \
+                -e 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
+                -e 's|security.ubuntu.com|archive.ubuntu.com|g' \
+                "$source"
+            fi
+          done
+          sudo install -d -m 0755 /etc/apt/apt.conf.d
+          printf '%s\n' \
+            'Acquire::Retries "2";' \
+            'Acquire::ForceIPv4 "true";' \
+            'Acquire::http::Timeout "20";' \
+            'Acquire::https::Timeout "20";' \
+            | sudo tee /etc/apt/apt.conf.d/99-miaoclip-network >/dev/null
+
+          if ! timeout 120s sudo apt-get update; then
+            for source in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+              if [ -f "$source" ]; then
+                sudo sed -i 's|archive.ubuntu.com|mirrors.edge.kernel.org|g' "$source"
+              fi
+            done
+            timeout 120s sudo apt-get update
+          fi
           sudo apt-get install -y --no-install-recommends \
             libayatana-appindicator3-dev \
             libgtk-3-dev \
