@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：最近一次已完成的运行通过**：[`43083861866`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/43083861866) 对提交 `ffef029` 的整体结论为成功。最近一次包含应用代码改动的完整验证 [`43079922642`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/43079922642) 对提交 `cf128ed` 的 6 个 job 全部成功：Linux、macOS、Windows 的格式检查、编译和 Rust 测试均通过；macOS Apple Silicon、macOS Intel 和 Windows 安装包均构建并上传成功。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)验证。本机 `cargo clippy --all-targets -- -D warnings` 也通过；最近的界面调整只降低分隔线的视觉强调，不改变三栏拖动行为。
+- **CI：当前主分支验证通过**：[`43117886904`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/43117886904) 对当前提交 `d31e590` 的 6 个 job 全部成功：Linux、macOS、Windows 检查均通过；macOS Apple Silicon、macOS Intel 和 Windows 安装包均构建并上传成功。最近一次包含应用代码改动的完整验证 [`43079922642`](https://github.com/strawberry-little-bear/miao-clip/actions/runs/43079922642) 对提交 `cf128ed` 的 6 个 job 也全部成功。Linux `.deb` / `.AppImage` 安装包已由 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)验证。本机 `cargo clippy --all-targets -- -D warnings` 也通过；最近的界面调整只降低分隔线的视觉强调，不改变三栏拖动行为。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
 - **macOS Apple Silicon：构建和自动化检查通过；完整设备验收待复测**：本机已完成有限的后台文本捕获验证，确认复制内容能够进入本地历史并保留完整日期时间。完整的图片、文件、通知点击、开机启动、暂停监听、隐私模式、重启恢复和敏感内容交互清单需要在设备解锁后重新逐项验收；通过脚本或系统命令写入剪贴板时，来源应用也可能只能显示“未知应用”，不能把该来源当作审计级事实。
 - **macOS Intel：构建已验证，设备验收待完成**：Intel 构建已在 CI 成功，仍需要 Intel Mac 实机补做完整剪贴板、通知和开机启动验收。
