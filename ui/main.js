@@ -1558,6 +1558,10 @@
       : entry;
     state.entries = capHistoryEntries([storedEntry, ...state.entries.filter((item) => !sameContent(item))]);
     state.selectedId = storedEntry.id;
+    // Automatic captures must update the inbox immediately as well as the
+    // detail panel. renderFeed() preserves the user's scroll position, which
+    // matters when a new clipboard item arrives while browsing older entries.
+    renderFeed();
     elements.feedCaption.textContent = "复制内容后会自动保存到本地历史";
     selectEntry(storedEntry.id);
     // The native watcher persists automatic captures before emitting them, so
