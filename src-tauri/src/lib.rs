@@ -1820,6 +1820,7 @@ fn read_history_entries(app: &AppHandle) -> Result<Vec<HistoryEntry>, String> {
     let changed = protect_sensitive_entries(&mut entries)?;
     if changed || entries != original_entries || history.version < HISTORY_FILE_VERSION {
         write_history_file(app, &entries)?;
+        cleanup_removed_sensitive_secrets(&original_entries, &entries);
     }
     Ok(entries)
 }
@@ -2053,15 +2054,26 @@ fn request_import_history(app: AppHandle, state: State<'_, RuntimeState>) -> Res
 }
 
 fn cleanup_removed_sensitive_secrets(previous: &[HistoryEntry], current: &[HistoryEntry]) {
+    for secret_ref in removed_sensitive_secret_refs(previous, current) {
+        delete_sensitive_secret(&secret_ref);
+    }
+}
+
+fn removed_sensitive_secret_refs(
+    previous: &[HistoryEntry],
+    current: &[HistoryEntry],
+) -> Vec<String> {
     let retained: HashSet<&str> = current
         .iter()
         .filter_map(|entry| entry.secret_ref.as_deref())
         .collect();
+    let mut seen = HashSet::new();
     previous
         .iter()
         .filter_map(|entry| entry.secret_ref.as_deref())
-        .filter(|secret_ref| !retained.contains(secret_ref))
-        .for_each(delete_sensitive_secret);
+        .filter(|secret_ref| !retained.contains(secret_ref) && seen.insert(*secret_ref))
+        .map(str::to_string)
+        .collect()
 }
 
 fn persist_captured_snapshot(
@@ -3279,8 +3291,9 @@ mod tests {
         is_single_image_file, mark_sensitive_persistence_failure, merge_source_app_name,
         normalize_cleanup_schedule, normalize_file_path, normalize_history,
         normalize_notification_settings, normalize_position, normalize_source_app_name,
-        notification_title, prune_old_entries, sensitive_secret_ref, source_app_after_sampling,
-        stable_source_app_name, take_source_app_hint, unavailable_image_snapshot, valid_image_id,
+        notification_title, prune_old_entries, removed_sensitive_secret_refs, sensitive_secret_ref,
+        source_app_after_sampling, stable_source_app_name, take_source_app_hint,
+        unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3642,6 +3655,41 @@ mod tests {
 
         assert!(masked.text.is_empty());
         assert!(is_protected_history_entry(&masked));
+    }
+
+    #[test]
+    fn finds_removed_sensitive_secret_references_once_and_in_order() {
+        let mut removed = entry("removed", "");
+        removed.secret_ref = Some("entry:removed".to_string());
+        let mut duplicate = removed.clone();
+        duplicate.id = "removed-duplicate".to_string();
+        let mut retained = entry("retained", "");
+        retained.secret_ref = Some("entry:retained".to_string());
+
+        let current = vec![retained.clone()];
+        let previous = vec![removed, duplicate, retained];
+
+        assert_eq!(
+            removed_sensitive_secret_refs(&previous, &current),
+            vec!["entry:removed".to_string()]
+        );
+    }
+
+    #[test]
+    fn does_not_remove_secret_references_still_used_by_current_history() {
+        let mut previous_entry = entry("same", "");
+        previous_entry.secret_ref = Some("entry:same".to_string());
+        let current_entry = previous_entry.clone();
+
+        assert!(removed_sensitive_secret_refs(&[previous_entry], &[current_entry]).is_empty());
+    }
+
+    #[test]
+    fn ordinary_history_entries_have_no_sensitive_secret_references_to_remove() {
+        let previous = vec![entry("ordinary", "ordinary text")];
+        let current = previous.clone();
+
+        assert!(removed_sensitive_secret_refs(&previous, &current).is_empty());
     }
 
     #[test]
