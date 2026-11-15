@@ -712,6 +712,38 @@ fn capability(available: bool, detail: impl Into<String>) -> CapabilityStatus {
     }
 }
 
+fn secure_storage_capability() -> CapabilityStatus {
+    #[cfg(target_os = "macos")]
+    {
+        return capability(
+            true,
+            "使用 macOS 钥匙串保存敏感内容；启动和普通诊断不会读取钥匙串，首次查看或保存时才可能请求系统授权。",
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return capability(
+            true,
+            "使用 Windows 凭据管理器保存敏感内容；首次查看或保存时才验证系统安全存储。",
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return capability(
+            true,
+            "使用桌面环境提供的 Secret Service 保存敏感内容；首次查看或保存时才验证系统安全存储。",
+        );
+    }
+
+    #[allow(unreachable_code)]
+    capability(
+        false,
+        "当前平台没有可用的系统安全存储实现；敏感内容可能无法保存。",
+    )
+}
+
 fn source_app_capability() -> CapabilityStatus {
     #[cfg(target_os = "macos")]
     {
@@ -2756,13 +2788,11 @@ fn get_platform_diagnostics(
         .read()
         .map(|status| status.clone())
         .map_err(|_| "无法读取剪贴板监听状态。".to_string())?;
-    let secure_storage = match sensitive_keyring_entry("diagnostic") {
-        Ok(_) => capability(
-            true,
-            "系统安全存储接口已加载。首次写入敏感内容时仍可能需要系统授权。",
-        ),
-        Err(error) => capability(false, error),
-    };
+    // Do not construct a keyring entry during startup diagnostics. On macOS,
+    // even probing an entry can trigger a Keychain authorization prompt. The
+    // real backend is exercised only when a sensitive item is saved, revealed,
+    // copied, or deleted.
+    let secure_storage = secure_storage_capability();
     let autostart = match app.autolaunch().is_enabled() {
         Ok(_) => capability(true, "当前平台支持开机启动设置。"),
         Err(error) => capability(false, format!("开机启动能力不可用：{error}")),
@@ -3323,9 +3353,9 @@ mod tests {
         is_single_image_file, mark_sensitive_persistence_failure, merge_source_app_name,
         normalize_cleanup_schedule, normalize_file_path, normalize_history,
         normalize_notification_settings, normalize_position, normalize_source_app_name,
-        notification_title, prune_old_entries, removed_sensitive_secret_refs, sensitive_secret_ref,
-        source_app_after_sampling, stable_source_app_name, take_source_app_hint,
-        unavailable_image_snapshot, valid_image_id,
+        notification_title, prune_old_entries, removed_sensitive_secret_refs,
+        secure_storage_capability, sensitive_secret_ref, source_app_after_sampling,
+        stable_source_app_name, take_source_app_hint, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3752,6 +3782,15 @@ mod tests {
         assert!(!is_missing_secure_item_error(
             &"The specified item already exists."
         ));
+    }
+
+    #[test]
+    fn secure_storage_diagnostics_do_not_require_a_keychain_probe() {
+        let status = secure_storage_capability();
+
+        assert!(status.available);
+        assert!(status.detail.contains("首次"));
+        assert!(status.detail.contains("授权") || status.detail.contains("验证"));
     }
 
     #[test]

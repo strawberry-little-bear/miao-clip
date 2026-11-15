@@ -8,8 +8,9 @@
   --muted: #7c817d;
   --line: #e4e2db;
   --paper: #fffefa;
-  --blue: #68766c;
-  --blue-soft: #eef1eb;
+  --blue: #697269;
+  --blue-soft: #f0f0e9;
+  --focus-line: #8f9a91;
   --yellow: #f1c75b;
   --sidebar-width: 226px;
   --feed-width: 560px;
@@ -23,7 +24,7 @@ body { margin: 0; min-height: 100vh; overflow-x: hidden; background: #f6f5f1; }
 button, input { font: inherit; }
 button { max-width: 100%; cursor: pointer; }
 button:focus-visible, select:focus-visible, input:focus-visible {
-  outline: 2px solid #aab5ab;
+  outline: 2px solid var(--focus-line);
   outline-offset: 2px;
   box-shadow: none;
 }
@@ -50,9 +51,9 @@ button:focus:not(:focus-visible), select:focus:not(:focus-visible), input:focus:
 .primary-nav { display: grid; gap: 3px; }
 .nav-item { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 9px; width: 100%; min-height: 38px; padding: 0 11px; border: 0; border-radius: 7px; color: #646964; background: transparent; text-align: left; font-size: 13px; }
 .nav-item:hover { color: var(--ink); background: #e9e8e2; }
-.nav-item.is-active { color: #4b6862; background: #e9eeea; font-weight: 700; }
+.nav-item.is-active { color: #535d56; background: #efefe9; font-weight: 700; }
 .nav-symbol { color: #7b827d; font-size: 16px; text-align: center; }
-.is-active .nav-symbol { color: #6d8d84; }
+.is-active .nav-symbol { color: #788077; }
 .nav-count { color: #8f9790; font-size: 11px; font-variant-numeric: tabular-nums; }
 .sidebar-footer { margin-top: auto; }
 .local-status { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 10px 12px 16px; border: 0; color: #838984; background: transparent; font-size: 11px; text-align: left; }
@@ -95,7 +96,7 @@ h2 { font-size: 17px; font-weight: 760; }
 .empty-feed strong { color: #575d58; font-size: 14px; }
 .empty-feed p { max-width: 260px; margin: 8px 0 20px; font-size: 12px; line-height: 1.7; }
 .section-actions, .bulk-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
-.bulk-actions { min-height: 38px; margin: 0 0 10px; padding: 7px 10px; border: 1px solid #d8e2dd; border-radius: 7px; background: #f2f6f3; }
+.bulk-actions { min-height: 38px; margin: 0 0 10px; padding: 7px 10px; border: 1px solid #deded5; border-radius: 7px; background: #f5f5ef; }
 .bulk-actions[hidden] { display: none; }
 .bulk-selection-count { margin-right: auto; color: #53635d; font-size: 11px; font-weight: 700; }
 .danger-button { color: #a25448; }
@@ -134,7 +135,7 @@ h2 { font-size: 17px; font-weight: 760; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 5px; min-height: 24px; margin: 9px 0; }
 .tag-form { display: flex; gap: 7px; }
 .tag-form input { min-width: 0; flex: 1; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: #fff; font-size: 11px; }
-.tag-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 7px; border-radius: 4px; color: #41635f; background: #e7f1ed; font-size: 10px; overflow-wrap: anywhere; }
+.tag-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 7px; border-radius: 4px; color: #59645c; background: #efefe8; font-size: 10px; overflow-wrap: anywhere; }
 .tag-chip button { padding: 0; border: 0; color: #6c827b; background: transparent; cursor: pointer; font-size: 13px; line-height: 1; }
 .tag-chip button:hover { color: #a25448; }
 .feed-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
