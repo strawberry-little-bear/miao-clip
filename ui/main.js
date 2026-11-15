@@ -270,10 +270,13 @@
   function startLayoutResize(kind, event) {
     if (!usesDesktopLayout() || event.button !== 0) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const splitter = event.currentTarget;
+    splitter.setPointerCapture?.(event.pointerId);
+    splitter.classList.add("is-resizing");
     document.body.classList.add("is-resizing");
     const move = (moveEvent) => resizeLayout(kind, moveEvent.clientX);
     const finish = () => {
+      splitter.classList.remove("is-resizing");
       document.body.classList.remove("is-resizing");
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", finish);
