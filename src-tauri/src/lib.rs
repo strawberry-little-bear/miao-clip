@@ -2249,6 +2249,8 @@ fn read_clipboard_snapshot(
         .map(|name| normalize_source_app_name(name.to_string()))
         .unwrap_or_else(source_app_name);
 
+    let mut unavailable_image_path = None;
+
     if let Ok(clipboard) = ClipboardContext::new() {
         // Finder and similar file managers often expose both file URLs and a
         // preview/icon image for the same copy operation. Resolve file URLs
@@ -2262,34 +2264,43 @@ fn read_clipboard_snapshot(
                 if !settings.capture_images {
                     return Ok(ignored_capture_snapshot("图片捕获已关闭"));
                 }
-                let mut snapshot = image_file_to_snapshot(app, Path::new(&files[0]))
-                    .unwrap_or_else(|| unavailable_image_snapshot(Path::new(&files[0])));
-                snapshot.source_app = source_app.clone();
-                return Ok(snapshot);
+                if let Some(mut snapshot) = image_file_to_snapshot(app, Path::new(&files[0]))
+                    && snapshot.image_id.is_some()
+                {
+                    snapshot.source_app = source_app.clone();
+                    return Ok(snapshot);
+                }
+                // Some applications publish a misleading image filename and
+                // the actual image bytes separately. Keep the path as a
+                // fallback, but continue below so native image data gets a
+                // chance to produce a real preview first.
+                unavailable_image_path = Some(files[0].clone());
             }
-            if !settings.capture_files {
+            if !is_single_image_file(&files) && !settings.capture_files {
                 return Ok(ignored_capture_snapshot("文件捕获已关闭"));
             }
 
-            let first_name = PathBuf::from(&files[0])
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| files[0].clone());
-            return Ok(ClipboardSnapshot {
-                kind: "files",
-                sensitivity: "normal",
-                text: Some(files.join("\n")),
-                preview: format!("{first_name} 等 {} 个", files.len()),
-                length: files.len(),
-                entry_id: content_entry_id("files", files.join("\0").as_bytes()),
-                source_app: source_app.clone(),
-                persisted: false,
-                image_id: None,
-                image_width: None,
-                image_height: None,
-                files: Some(files),
-                toast: None,
-            });
+            if !is_single_image_file(&files) {
+                let first_name = PathBuf::from(&files[0])
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| files[0].clone());
+                return Ok(ClipboardSnapshot {
+                    kind: "files",
+                    sensitivity: "normal",
+                    text: Some(files.join("\n")),
+                    preview: format!("{first_name} 等 {} 个", files.len()),
+                    length: files.len(),
+                    entry_id: content_entry_id("files", files.join("\0").as_bytes()),
+                    source_app: source_app.clone(),
+                    persisted: false,
+                    image_id: None,
+                    image_width: None,
+                    image_height: None,
+                    files: Some(files),
+                    toast: None,
+                });
+            }
         }
 
         // Some image sources expose several native image formats at once.
@@ -2320,14 +2331,35 @@ fn read_clipboard_snapshot(
             snapshot.source_app = source_app.clone();
             return Ok(snapshot);
         }
+
+        if let Some(path) = unavailable_image_path {
+            let mut snapshot = unavailable_image_snapshot(Path::new(&path));
+            snapshot.source_app = source_app.clone();
+            return Ok(snapshot);
+        }
     }
 
-    let mut clipboard = Clipboard::new().map_err(|error| error.to_string())?;
+    let mut clipboard = match Clipboard::new() {
+        Ok(clipboard) => clipboard,
+        Err(error) => {
+            if let Some(path) = unavailable_image_path {
+                let mut snapshot = unavailable_image_snapshot(Path::new(&path));
+                snapshot.source_app = source_app.clone();
+                return Ok(snapshot);
+            }
+            return Err(error.to_string());
+        }
+    };
     if let Ok(image) = clipboard.get_image() {
         if !settings.capture_images {
             return Ok(ignored_capture_snapshot("图片捕获已关闭"));
         }
         let mut snapshot = arboard_image_to_snapshot(app, image)?;
+        snapshot.source_app = source_app.clone();
+        return Ok(snapshot);
+    }
+    if let Some(path) = unavailable_image_path {
+        let mut snapshot = unavailable_image_snapshot(Path::new(&path));
         snapshot.source_app = source_app.clone();
         return Ok(snapshot);
     }
