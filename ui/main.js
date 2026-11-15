@@ -732,7 +732,7 @@
   }
 
   function captureMessage(snapshot, entry) {
-    const sensitive = snapshot.sensitivity === "sensitive" || entry.category === "password";
+    const sensitive = snapshot.sensitivity === "sensitive" || isProtectedEntry(entry);
     let message;
     if (sensitive) {
       message = "已复制敏感信息：******（点击查看记录）";
