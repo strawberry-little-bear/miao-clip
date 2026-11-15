@@ -1927,10 +1927,18 @@
     setMessage("已恢复工作区默认布局。", { toast: true });
   });
   elements.feedColumn.addEventListener("scroll", () => {
-    // Do not force scrollTop while a card click is settling. That would also
-    // cancel a user's deliberate scroll; delayed restoration below handles
-    // the short-lived focus jump on Windows instead.
-    if (state.feedScrollLock !== null) return;
+    // Windows WebView2 can finish its native focus scroll after the delayed
+    // restore timers. While the click guard is active, correct that late jump
+    // from the scroll event itself. Wheel, touch, pointer and keyboard
+    // handlers cancel the guard first, so deliberate user scrolling remains
+    // untouched.
+    if (state.feedScrollLock !== null) {
+      const lockedPosition = state.feedScrollLock;
+      if (Math.abs(elements.feedColumn.scrollTop - lockedPosition) > 1) {
+        restoreFeedScrollPosition(lockedPosition);
+      }
+      return;
+    }
     state.feedScrollTop = elements.feedColumn.scrollTop;
   }, { passive: true });
   elements.feedColumn.addEventListener("wheel", cancelFeedScrollGuard, { capture: true, passive: true });
