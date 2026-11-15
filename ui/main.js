@@ -1489,8 +1489,23 @@
       if (!automatic) setMessage("此类内容的捕获已关闭，未写入历史。");
       return;
     }
-    if (snapshot.kind === "other" || snapshot.kind === "empty") {
+    if (snapshot.kind === "other") {
       if (!automatic) setMessage(snapshot.preview);
+      return;
+    }
+    if (snapshot.kind === "empty") {
+      if (automatic) {
+        setMonitorStatus("listening", "自动监听中", "剪贴板当前为空，复制内容后会自动出现在这里");
+        return;
+      }
+      resetDetail();
+      elements.detailHeading.textContent = "空文本";
+      elements.contentKind.textContent = "空";
+      elements.contentLength.textContent = "0 字符";
+      elements.contentTime.textContent = "未写入本地历史";
+      elements.preview.textContent = "（空文本）";
+      renderFeed();
+      setMessage("剪贴板当前为空，未新增历史。");
       return;
     }
     const text = snapshot.text || "";
@@ -1529,22 +1544,6 @@
     state.currentText = isProtected ? "" : text;
     state.resultText = entry.category === "password" ? "" : text;
     elements.resultPreview.textContent = entry.category === "password" ? maskedProtectedText() : text || "还没有处理结果。";
-    if (snapshot.kind === "empty") {
-      if (automatic) setMonitorStatus("listening", "自动监听中", "剪贴板当前为空，复制内容后会自动出现在这里");
-      if (!automatic) {
-        state.selectedId = null;
-        state.selectedEntry = entry;
-        elements.detailHeading.textContent = "空文本";
-        elements.contentKind.textContent = "空";
-        elements.contentLength.textContent = "0 字符";
-        elements.contentTime.textContent = "未写入本地历史";
-        elements.protectedControls.hidden = true;
-        elements.preview.textContent = "（空文本）";
-        renderFeed();
-        setMessage("剪贴板当前为空，未新增历史。");
-      }
-      return;
-    }
     const sameContent = (item) => entry.category === "password"
       ? item.category === "password" && item.id === entry.id
       : kind === "图片"
