@@ -1401,7 +1401,7 @@
 
   function renderProtectedPreview(entry) {
     const canReveal = Boolean(entry.secret_ref);
-    const revealed = state.revealedEntryId === entry.id;
+    const revealed = canReveal && state.revealedEntryId === entry.id;
     const previewText = revealed ? (state.revealedText || "（空文本）") : maskedProtectedText();
     elements.preview.textContent = previewText;
     elements.resultPreview.textContent = previewText;
