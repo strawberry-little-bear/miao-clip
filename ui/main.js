@@ -707,6 +707,13 @@
     return "******";
   }
 
+  // The secure-storage reference is authoritative for migrated and legacy
+  // records. Keep the UI aligned with the native reveal/copy commands even
+  // if an imported entry still carries an older category value.
+  function isProtectedEntry(entry) {
+    return entry?.category === "password" || Boolean(entry?.secret_ref);
+  }
+
   function isUsableSourceApp(name) {
     const normalized = String(name || "").trim().toLowerCase();
     return normalized !== ""
@@ -1040,9 +1047,9 @@
     elements.feed.querySelectorAll(".feed-card").forEach((card) => card.remove());
     entries.forEach((entry, index) => {
       const card = document.createElement("article");
-      const protectedEntry = entry.category === "password";
+      const protectedEntry = isProtectedEntry(entry);
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${state.selectionMode ? " is-selection-mode" : ""}`;
-      const icon = entry.kind === "图片" ? "▧" : entry.kind === "文件" ? "↗" : entry.kind === "JSON" ? "{}" : entry.category === "password" ? "•" : entry.category === "url" ? "↗" : entry.category === "account" ? "@" : "T";
+      const icon = entry.kind === "图片" ? "▧" : entry.kind === "文件" ? "↗" : entry.kind === "JSON" ? "{}" : protectedEntry ? "•" : entry.category === "url" ? "↗" : entry.category === "account" ? "@" : "T";
       const summary = protectedEntry ? maskedProtectedText() : entry.kind === "图片"
         ? entry.image_id ? `${entry.image_width || 0} × ${entry.image_height || 0}` : "无法预览"
         : entry.kind === "文件" ? `${(entry.files || []).length} 个文件` : `${(entry.text || "").length} 字符`;
@@ -1329,7 +1336,8 @@
     state.selectedId = id;
     state.selectedEntry = entry;
     renderTagEditor(entry);
-    state.currentText = entry.category === "password" ? "" : (entry.text || "");
+    const protectedEntry = isProtectedEntry(entry);
+    state.currentText = protectedEntry ? "" : (entry.text || "");
     elements.detailHeading.textContent = entry.title;
     elements.contentKind.textContent = categoryLabel(entry.category);
     elements.contentLength.textContent = entry.kind === "图片"
@@ -1338,7 +1346,6 @@
     elements.contentTime.textContent = state.notificationSettings.showSourceApp
       ? `来自：${entry.source_app || "未知应用"} · ${formatTime(entry.time)}`
       : formatTime(entry.time);
-    const protectedEntry = entry.category === "password";
     elements.protectedControls.hidden = !protectedEntry;
     const keepRevealed = protectedEntry && state.revealedEntryId === entry.id;
     state.revealedEntryId = keepRevealed ? entry.id : null;
@@ -1367,13 +1374,13 @@
       elements.copyProtected.disabled = true;
       elements.preview.textContent = entry.text || "（空文本）";
     }
-    const canProcessText = entry.category !== "password" && ["文本", "JSON"].includes(entry.kind);
+    const canProcessText = !protectedEntry && ["文本", "JSON"].includes(entry.kind);
     document.querySelectorAll("[data-action]").forEach((button) => {
       button.disabled = button.dataset.action === "copy-entry"
-        ? entry.category === "password" && state.revealedEntryId !== entry.id
+        ? protectedEntry && state.revealedEntryId !== entry.id
         : !canProcessText;
     });
-    if (entry.category === "password") {
+    if (protectedEntry) {
       state.resultText = "";
       elements.resultPreview.textContent = maskedProtectedText();
     } else {
@@ -1422,7 +1429,7 @@
   }
 
   async function revealProtectedEntry() {
-    const entry = state.entries.find((candidate) => candidate.id === state.selectedId && candidate.category === "password");
+    const entry = state.entries.find((candidate) => candidate.id === state.selectedId && isProtectedEntry(candidate));
     if (!entry) return;
     if (state.revealedEntryId === entry.id) {
       state.revealedEntryId = null;
@@ -1453,7 +1460,7 @@
   async function copyProtectedEntry() {
     try {
       requireTauri();
-      const entry = state.entries.find((candidate) => candidate.id === state.selectedId && candidate.category === "password");
+      const entry = state.entries.find((candidate) => candidate.id === state.selectedId && isProtectedEntry(candidate));
       if (!entry || state.revealedEntryId !== entry.id) {
         throw new Error("请先点击“显示原文”。");
       }
@@ -1533,7 +1540,7 @@
       files: snapshot.files || null,
     } : { ...makeEntry(text, new Date().toISOString(), snapshot.entry_id, snapshot.sensitivity), source_app: normalizeSourceApp(snapshot.source_app || snapshot.sourceApp) };
     if (kind) entry.id = snapshot.entry_id || entry.id;
-    const isProtected = entry.category === "password";
+    const isProtected = isProtectedEntry(entry);
     if (isProtected && (!automatic || !snapshot.persisted)) {
       await invoke("store_sensitive_entry", { entryId: entry.id, text });
     }
@@ -1542,10 +1549,10 @@
       entry.secret_ref = `entry:${entry.id}`;
     }
     state.currentText = isProtected ? "" : text;
-    state.resultText = entry.category === "password" ? "" : text;
-    elements.resultPreview.textContent = entry.category === "password" ? maskedProtectedText() : text || "还没有处理结果。";
-    const sameContent = (item) => entry.category === "password"
-      ? item.category === "password" && item.id === entry.id
+    state.resultText = isProtected ? "" : text;
+    elements.resultPreview.textContent = isProtected ? maskedProtectedText() : text || "还没有处理结果。";
+    const sameContent = (item) => isProtected
+      ? isProtectedEntry(item) && item.id === entry.id
       : kind === "图片"
       ? (item.image_id && entry.image_id
         ? item.image_id === entry.image_id
@@ -1627,7 +1634,7 @@
       return;
     }
 
-    if (entry.category === "password") {
+    if (isProtectedEntry(entry)) {
       if (state.revealedEntryId !== entry.id) throw new Error("请先点击“显示原文”，再复制敏感信息。");
       await invoke("copy_sensitive_entry", { entryId: entry.id });
       setMessage("敏感信息原文已复制到系统剪贴板。");

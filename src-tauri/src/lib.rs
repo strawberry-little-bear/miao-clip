@@ -3510,6 +3510,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn secure_storage_reference_marks_legacy_entry_as_protected() {
+        let mut legacy = entry("legacy-secret", "");
+        legacy.secret_ref = Some(sensitive_secret_ref("legacy-secret"));
+
+        assert!(is_protected_history_entry(&legacy));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn source_app_hint_selects_the_settled_pasteboard_change() {
