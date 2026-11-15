@@ -129,6 +129,7 @@
     exportHistory: document.getElementById("export-history"),
     importHistory: document.getElementById("import-history"),
     protectedControls: document.getElementById("protected-controls"),
+    protectedDescription: document.getElementById("protected-description"),
     revealProtected: document.getElementById("reveal-protected"),
     copyProtected: document.getElementById("copy-protected"),
     categoryFilter: document.getElementById("category-filter"),
@@ -1399,13 +1400,19 @@
   }
 
   function renderProtectedPreview(entry) {
+    const canReveal = Boolean(entry.secret_ref);
     const revealed = state.revealedEntryId === entry.id;
     const previewText = revealed ? (state.revealedText || "（空文本）") : maskedProtectedText();
     elements.preview.textContent = previewText;
     elements.resultPreview.textContent = previewText;
-    elements.copyProtected.disabled = !revealed;
+    elements.protectedDescription.textContent = canReveal
+      ? "密码、银行卡号、身份证号等敏感内容会保存到系统安全存储，历史文件只保留引用，默认遮罩原文。"
+      : "这条记录来自脱敏备份；备份不包含敏感原文，因此无法在此查看或复制。";
+    elements.revealProtected.disabled = !canReveal;
+    elements.revealProtected.title = canReveal ? "显示敏感信息原文" : "脱敏备份未包含原文";
+    elements.copyProtected.disabled = !canReveal || !revealed;
     const copyEntryButton = document.querySelector('[data-action="copy-entry"]');
-    if (copyEntryButton) copyEntryButton.disabled = !revealed;
+    if (copyEntryButton) copyEntryButton.disabled = !canReveal || !revealed;
     elements.revealProtected.querySelector(".reveal-label").textContent = revealed ? "隐藏原文" : "显示原文";
     elements.revealProtected.setAttribute("aria-label", revealed ? "隐藏敏感信息原文" : "显示敏感信息原文");
     elements.revealProtected.setAttribute("aria-pressed", String(revealed));
