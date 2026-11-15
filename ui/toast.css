@@ -56,6 +56,6 @@ html, body {
 
 .toast-copy { min-width: 0; flex: 1; }
 .toast-heading { display: flex; align-items: center; gap: 8px; color: #6d7771; font-size: 11px; font-weight: 700; }
-.toast-heading span:last-child { color: #356d78; }
+.toast-heading span:last-child { color: #5d7b73; }
 .toast-copy p { margin: 7px 0 0; overflow: hidden; color: #26312d; font-size: 13px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .toast-status { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #5e9d82; box-shadow: 0 0 0 4px rgba(94, 157, 130, 0.12); }
