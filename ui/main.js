@@ -1017,7 +1017,9 @@
     elements.feedCaption.textContent = state.entries.length
       ? `普通记录 ${ordinaryCount}/${HISTORY_ENTRY_LIMIT} · 超出后淘汰最旧未固定记录 · 固定记录 ${pinnedCount} 条不受上限影响`
       : "复制内容后会自动出现在这里";
-    elements.emptyFeed.hidden = entries.length > 0;
+    const emptyFeedVisible = entries.length === 0;
+    elements.emptyFeed.hidden = !emptyFeedVisible;
+    elements.emptyFeed.setAttribute("aria-hidden", String(!emptyFeedVisible));
     if (entries.length === 0) {
       if (state.entries.length > 0 && state.view === "favorites") {
         elements.emptyFeedTitle.textContent = "还没有收藏内容";
@@ -1048,6 +1050,9 @@
     entries.forEach((entry, index) => {
       const card = document.createElement("article");
       const protectedEntry = isProtectedEntry(entry);
+      card.setAttribute("role", "listitem");
+      card.setAttribute("aria-setsize", String(entries.length));
+      card.setAttribute("aria-posinset", String(index + 1));
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${state.selectionMode ? " is-selection-mode" : ""}`;
       const icon = entry.kind === "图片" ? "▧" : entry.kind === "文件" ? "↗" : entry.kind === "JSON" ? "{}" : protectedEntry ? "•" : entry.category === "url" ? "↗" : entry.category === "account" ? "@" : "T";
       const summary = protectedEntry ? maskedProtectedText() : entry.kind === "图片"

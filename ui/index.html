@@ -63,8 +63,8 @@
               <input id="date-from" type="date" aria-label="开始日期" hidden />
               <input id="date-to" type="date" aria-label="结束日期" hidden />
             </div>
-            <div class="feed" id="feed">
-              <div class="empty-feed" id="empty-feed">
+            <div class="feed" id="feed" role="list" aria-label="最近复制内容">
+              <div class="empty-feed" id="empty-feed" aria-hidden="true">
                 <div class="empty-mark" aria-hidden="true">＋</div>
                 <strong id="empty-feed-title">还没有内容</strong>
                 <p id="empty-feed-description">自动监听已经开启。复制一段文本后，它会自动识别类型并保存到本地。</p>
@@ -151,6 +151,6 @@
       </main>
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
-    <script src="main.js?v=31"></script>
+    <script src="main.js?v=33"></script>
   </body>
 </html>
