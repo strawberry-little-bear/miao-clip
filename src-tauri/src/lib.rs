@@ -3331,8 +3331,16 @@ pub fn run() {
             write_files_clipboard,
             write_history_image_clipboard,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while building tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(all(desktop, target_os = "macos"))]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                if let Err(error) = show_main_window(app) {
+                    log::warn!("无法通过再次打开事件显示妙夹主窗口：{error}");
+                }
+            }
+        });
 }
 
 #[cfg(test)]
