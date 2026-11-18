@@ -3335,10 +3335,10 @@ pub fn run() {
             }
 
             #[cfg(all(desktop, target_os = "macos"))]
-            if let tauri::RunEvent::Reopen { .. } = event {
-                if let Err(error) = show_main_window(app) {
-                    log::warn!("无法通过再次打开事件显示妙夹主窗口：{error}");
-                }
+            if let tauri::RunEvent::Reopen { .. } = event
+                && let Err(error) = show_main_window(app)
+            {
+                log::warn!("无法通过再次打开事件显示妙夹主窗口：{error}");
             }
         });
 }

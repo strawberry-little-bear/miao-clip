@@ -73,7 +73,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
 
       - name: Install Node.js
         uses: actions/setup-node@v7
@@ -90,6 +90,9 @@ jobs:
 
       - name: Check Rust code
         run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
