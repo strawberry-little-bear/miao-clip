@@ -175,6 +175,17 @@ fn source_app_after_sampling(first_frontmost: &str, current_frontmost: &str) -> 
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn source_app_at_copy_boundary(frontmost: &str, foreground_stable_for: Duration) -> String {
+    const MIN_FOREGROUND_STABILITY: Duration = Duration::from_millis(100);
+
+    if foreground_stable_for < MIN_FOREGROUND_STABILITY {
+        default_source_app()
+    } else {
+        normalize_source_app_name(frontmost.to_string())
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct HistoryFile {
     version: u8,
@@ -1079,6 +1090,7 @@ fn spawn_macos_source_tracker(
             let mut last_frontmost = macos_frontmost_app_name()
                 .map(normalize_source_app_name)
                 .unwrap_or_else(default_source_app);
+            let mut last_frontmost_changed_at = Instant::now();
             let mut pending_change: Option<(isize, String)> = None;
             // The event tracker must stay non-blocking. `source_app_name()`
             // can invoke osascript when AppKit cannot resolve the frontmost
@@ -1094,6 +1106,7 @@ fn spawn_macos_source_tracker(
                     .unwrap_or_else(default_source_app);
                 if current_frontmost != last_frontmost {
                     last_frontmost = current_frontmost.clone();
+                    last_frontmost_changed_at = observed_at;
                 }
                 if current_count != previous_count {
                     // The first sample only tells us which pasteboard change
@@ -1114,7 +1127,12 @@ fn spawn_macos_source_tracker(
                         }
                     }
                     previous_count = current_count;
-                    pending_change = Some((current_count, current_frontmost));
+                    let foreground_stable_for =
+                        observed_at.saturating_duration_since(last_frontmost_changed_at);
+                    pending_change = Some((
+                        current_count,
+                        source_app_at_copy_boundary(&current_frontmost, foreground_stable_for),
+                    ));
                 } else if let Some((change_count, first_frontmost)) = pending_change.take() {
                     let source_app =
                         source_app_after_sampling(&first_frontmost, &current_frontmost);
@@ -3349,6 +3367,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::path::Path;
     use std::sync::{Arc, Mutex, RwLock};
+    use std::time::Duration;
 
     use super::MAX_HISTORY_ENTRIES;
     use super::{
@@ -3363,8 +3382,8 @@ mod tests {
         normalize_notification_settings, normalize_position, normalize_source_app_name,
         notification_title, prune_old_entries, removed_sensitive_secret_refs,
         secure_storage_capability, sensitive_secret_ref, sensitive_secret_ref_matches_text,
-        source_app_after_sampling, stable_source_app_name, take_source_app_hint,
-        unavailable_image_snapshot, valid_image_id,
+        source_app_after_sampling, source_app_at_copy_boundary, stable_source_app_name,
+        take_source_app_hint, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3482,6 +3501,18 @@ mod tests {
             source_app_after_sampling("Safari", "Terminal"),
             "未知应用",
             "a foreground-app switch during sampling must not be attributed to either app"
+        );
+    }
+
+    #[test]
+    fn source_app_is_unknown_when_clipboard_changes_immediately_after_app_switch() {
+        assert_eq!(
+            source_app_at_copy_boundary("Finder", Duration::from_millis(99)),
+            "未知应用"
+        );
+        assert_eq!(
+            source_app_at_copy_boundary("Finder", Duration::from_millis(100)),
+            "Finder"
         );
     }
 
