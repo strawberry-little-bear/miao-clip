@@ -3272,11 +3272,6 @@ pub fn run() {
                 .set_activation_policy(ActivationPolicy::Regular)
                 .map_err(std::io::Error::other)?;
 
-            #[cfg(desktop)]
-            if !launched_from_autostart() {
-                show_main_window(app.handle()).map_err(std::io::Error::other)?;
-            }
-
             spawn_clipboard_monitor(app.handle().clone(), runtime_state);
 
             if cfg!(debug_assertions) {
@@ -3334,6 +3329,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            if let tauri::RunEvent::Ready = event {
+                #[cfg(desktop)]
+                if !launched_from_autostart()
+                    && let Err(error) = show_main_window(app)
+                {
+                    log::warn!("无法在应用就绪时显示妙夹主窗口：{error}");
+                }
+            }
+
             #[cfg(all(desktop, target_os = "macos"))]
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Err(error) = show_main_window(app) {
