@@ -1411,6 +1411,10 @@ fn is_existing_secure_item_error(error: &dyn std::fmt::Display) -> bool {
         .contains("already exists")
 }
 
+fn sensitive_secret_ref_matches_text(secret_ref: &str, text: &str) -> bool {
+    secret_ref == sensitive_secret_ref(&content_entry_id("text", text.as_bytes()))
+}
+
 fn is_missing_secure_item_error(error: &dyn std::fmt::Display) -> bool {
     let message = error.to_string().to_ascii_lowercase();
     message.contains("not found")
@@ -1428,24 +1432,16 @@ fn store_sensitive_secret(secret_ref: &str, text: &str) -> Result<(), String> {
     match entry.set_password(text) {
         Ok(()) => Ok(()),
         Err(error) if is_existing_secure_item_error(&error) => {
-            // Some keyring backends report an existing item instead of
-            // updating it. Recreate that one item so a stale or inaccessible
-            // record does not permanently block a new sensitive capture.
-            if let Ok(existing) = entry.get_password()
-                && existing == text
-            {
+            // Captured text uses a content-addressed reference, so an
+            // existing matching reference is an idempotent write. Do not read
+            // or delete Keychain items here: either operation can prompt for
+            // authorization, and a failed read must never destroy the secret.
+            if sensitive_secret_ref_matches_text(secret_ref, text) {
                 return Ok(());
             }
-            match entry.delete_credential() {
-                Ok(()) => {}
-                Err(delete_error) if is_missing_secure_item_error(&delete_error) => {}
-                Err(delete_error) => {
-                    return Err(format!("无法修复系统安全存储条目：{delete_error}"));
-                }
-            }
-            entry
-                .set_password(text)
-                .map_err(|set_error| format!("无法写入系统安全存储：{set_error}"))
+            Err(format!(
+                "系统安全存储中已存在同名条目，未读取或删除原内容：{error}"
+            ))
         }
         Err(error) => Err(format!("无法写入系统安全存储：{error}")),
     }
@@ -3366,8 +3362,9 @@ mod tests {
         normalize_cleanup_schedule, normalize_file_path, normalize_history,
         normalize_notification_settings, normalize_position, normalize_source_app_name,
         notification_title, prune_old_entries, removed_sensitive_secret_refs,
-        secure_storage_capability, sensitive_secret_ref, source_app_after_sampling,
-        stable_source_app_name, take_source_app_hint, unavailable_image_snapshot, valid_image_id,
+        secure_storage_capability, sensitive_secret_ref, sensitive_secret_ref_matches_text,
+        source_app_after_sampling, stable_source_app_name, take_source_app_hint,
+        unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -3781,6 +3778,20 @@ mod tests {
         ));
         assert!(is_existing_secure_item_error(&"ALREADY EXISTS"));
         assert!(!is_existing_secure_item_error(&"item not found"));
+    }
+
+    #[test]
+    fn only_treats_content_addressed_secret_conflicts_as_idempotent() {
+        let text = "password=synthetic-test-secret";
+        let matching_ref = sensitive_secret_ref(&content_entry_id("text", text.as_bytes()));
+        let different_ref = sensitive_secret_ref("text-unrelated-entry");
+
+        assert!(sensitive_secret_ref_matches_text(&matching_ref, text));
+        assert!(!sensitive_secret_ref_matches_text(
+            &matching_ref,
+            "different secret"
+        ));
+        assert!(!sensitive_secret_ref_matches_text(&different_ref, text));
     }
 
     #[test]
