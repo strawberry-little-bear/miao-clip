@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：跨平台工作流通过**：上方徽章会显示工作流的动态状态。2026-11-19 对提交 `3665d4e` 的[验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/44433437989)中，6 个检查与构建 job 全部成功：macOS Apple Silicon、macOS Intel、Windows 和 Linux 检查通过，macOS Apple Silicon、macOS Intel、Windows 桌面构建产物已上传为 Actions artifacts。本次 CI 不包含 Linux 桌面打包；Linux 安装包以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)为依据。本机 `cargo clippy --all-targets -- -D warnings` 和 64 项 Rust 测试通过。
+- **CI：跨平台工作流通过**：上方徽章会显示工作流的动态状态。2026-11-19 对提交 `0f14dbc` 的[验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/44443776601)中，6 个检查与构建 job 全部成功：macOS Apple Silicon、macOS Intel、Windows 和 Linux 检查通过，macOS Apple Silicon、macOS Intel、Windows 桌面构建产物已上传为 Actions artifacts。本次 CI 不包含 Linux 桌面打包；Linux 安装包以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)为依据。本机 `cargo clippy --all-targets -- -D warnings` 和 64 项 Rust 测试通过。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
 - **macOS Apple Silicon：构建和自动化检查通过；完整设备验收待复测**：本机已完成有限的后台文本捕获验证，确认复制内容能够进入本地历史并保留完整日期时间。完整的图片、文件、通知点击、开机启动、暂停监听、隐私模式、重启恢复和敏感内容交互清单需要在设备解锁后重新逐项验收；通过脚本或系统命令写入剪贴板时，来源应用也可能只能显示“未知应用”，不能把该来源当作审计级事实。
 - **macOS Intel：构建已验证，设备验收待完成**：Intel 构建已在 CI 成功，仍需要 Intel Mac 实机补做完整剪贴板、通知和开机启动验收。
@@ -54,7 +54,7 @@
 3. 使用搜索框、类型、来源应用、标签或时间筛选找到记录。
 4. 点击记录，在右侧预览、添加标签、收藏、处理或再次复制；需要时可用 **手动读取一次** 作为自动监听的备用入口。
 
-不需要登录，不需要云同步，也不需要 Node.js 前端环境。历史内容默认保存在当前设备；关闭主窗口后，妙夹仍可通过系统托盘继续监听。
+不需要登录，不需要云同步，也不需要 Node.js 前端运行环境。历史内容默认保存在当前设备；关闭主窗口后，妙夹仍可通过系统托盘继续监听。
 
 ## 功能速览
 
@@ -274,9 +274,9 @@ git diff --check
 
 ### 前端与打包说明
 
-妙夹不需要 Node.js、npm 或前端构建链。`ui/` 是原生 HTML、CSS 和 JavaScript 静态资源，Tauri 会直接把它打包进桌面应用。
+妙夹的运行不需要 Node.js、npm 或前端构建链。`ui/` 是原生 HTML、CSS 和 JavaScript 静态资源，Tauri 会直接把它打包进桌面应用。
 
-后续迭代界面时可以直接修改 `ui/`；需要增加前端依赖或引入复杂构建流程时，再单独评估是否值得引入 Node.js。macOS、Windows 和 Linux 共用同一套静态资源。
+后续迭代界面时可以直接修改 `ui/`；如果希望在提交前运行 `node --check` 做 JavaScript 语法检查，可以安装 Node.js 作为可选开发工具，但它不是用户运行妙夹的前置条件。只有在增加前端依赖或引入复杂构建流程时，才需要重新评估是否值得引入 Node.js 构建链。macOS、Windows 和 Linux 共用同一套静态资源。
 
 ## 隐私与数据
 
