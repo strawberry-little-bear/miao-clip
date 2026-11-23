@@ -254,6 +254,8 @@ struct NotificationSettings {
     cleanup_days: u64,
     #[serde(default = "default_cleanup_schedule")]
     cleanup_schedule: String,
+    #[serde(default)]
+    cleanup_last_run: Option<String>,
 }
 
 fn default_notification_duration_ms() -> u64 {
@@ -296,6 +298,7 @@ impl Default for NotificationSettings {
             cleanup_enabled: false,
             cleanup_days: default_cleanup_days(),
             cleanup_schedule: default_cleanup_schedule(),
+            cleanup_last_run: None,
         }
     }
 }
@@ -1531,11 +1534,50 @@ fn normalize_notification_settings(mut settings: NotificationSettings) -> Notifi
         .clamp(MIN_NOTIFICATION_DURATION_MS, MAX_NOTIFICATION_DURATION_MS);
     settings.cleanup_days = settings.cleanup_days.clamp(1, 3650);
     settings.cleanup_schedule = normalize_cleanup_schedule(&settings.cleanup_schedule);
+    settings.cleanup_last_run = settings
+        .cleanup_last_run
+        .filter(|last_run| DateTime::parse_from_rfc3339(last_run).is_ok());
     settings.toast_click_action = match settings.toast_click_action.as_str() {
         "entry" | "window" => settings.toast_click_action,
         _ => default_toast_click_action(),
     };
     settings
+}
+
+fn automatic_cleanup_is_due(
+    schedule: &str,
+    startup_pending: bool,
+    last_run: Option<&str>,
+    now: DateTime<Utc>,
+) -> bool {
+    if schedule == "startup" {
+        return startup_pending;
+    }
+
+    let interval = match schedule {
+        "daily" => ChronoDuration::days(1),
+        "weekly" => ChronoDuration::weeks(1),
+        _ => return false,
+    };
+    let Some(last_run) = last_run
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc))
+    else {
+        return true;
+    };
+
+    now.signed_duration_since(last_run) >= interval
+}
+
+fn record_automatic_cleanup_run(
+    app: &AppHandle,
+    settings: &Arc<RwLock<NotificationSettings>>,
+) -> Result<(), String> {
+    let mut settings = settings
+        .write()
+        .map_err(|_| "无法更新自动清理状态。".to_string())?;
+    settings.cleanup_last_run = Some(Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true));
+    save_notification_settings_to_disk(app, &settings)
 }
 
 fn load_notification_settings(app: &AppHandle) -> Result<NotificationSettings, String> {
@@ -2868,14 +2910,17 @@ fn save_notification_settings(
     state: State<'_, RuntimeState>,
     settings: NotificationSettings,
 ) -> Result<NotificationSettings, String> {
-    let settings = normalize_notification_settings(settings);
+    let mut settings = normalize_notification_settings(settings);
     #[cfg(desktop)]
     configure_quick_paste_shortcut(&app, settings.quick_paste_enabled)?;
-    save_notification_settings_to_disk(&app, &settings)?;
     let mut current = state
         .notification_settings
         .write()
         .map_err(|_| "无法更新通知设置。".to_string())?;
+    // The frontend doesn't edit this scheduler-owned field. Preserve it when
+    // saving any of the user-facing notification and retention controls.
+    settings.cleanup_last_run = current.cleanup_last_run.clone();
+    save_notification_settings_to_disk(&app, &settings)?;
     *current = settings.clone();
     Ok(settings)
 }
@@ -3199,7 +3244,7 @@ pub fn run() {
             std::thread::Builder::new()
                 .name("history-cleanup".to_string())
                 .spawn(move || {
-                    let mut last_run: Option<Instant> = None;
+                    let mut startup_cleanup_pending = true;
                     let mut last_schedule = String::new();
 
                     loop {
@@ -3213,7 +3258,7 @@ pub fn run() {
                         };
 
                         if !settings.cleanup_enabled {
-                            last_run = None;
+                            startup_cleanup_pending = true;
                             last_schedule.clear();
                             thread::sleep(Duration::from_secs(60));
                             continue;
@@ -3221,20 +3266,17 @@ pub fn run() {
 
                         if last_schedule != settings.cleanup_schedule {
                             last_schedule = settings.cleanup_schedule.clone();
-                            last_run = None;
+                            if last_schedule == "startup" {
+                                startup_cleanup_pending = true;
+                            }
                         }
 
-                        let should_run = match last_run {
-                            None => true,
-                            Some(previous) => match settings.cleanup_schedule.as_str() {
-                                "daily" => previous.elapsed() >= Duration::from_secs(24 * 60 * 60),
-                                "weekly" => {
-                                    previous.elapsed() >= Duration::from_secs(7 * 24 * 60 * 60)
-                                }
-                                "startup" => false,
-                                _ => false,
-                            },
-                        };
+                        let should_run = automatic_cleanup_is_due(
+                            &settings.cleanup_schedule,
+                            startup_cleanup_pending,
+                            settings.cleanup_last_run.as_deref(),
+                            Utc::now(),
+                        );
 
                         if should_run {
                             match cleanup_old_history_entries(
@@ -3243,7 +3285,13 @@ pub fn run() {
                                 settings.cleanup_days,
                             ) {
                                 Ok(result) => {
-                                    last_run = Some(Instant::now());
+                                    startup_cleanup_pending = false;
+                                    if let Err(error) = record_automatic_cleanup_run(
+                                        &cleanup_app,
+                                        &cleanup_settings,
+                                    ) {
+                                        log::warn!("无法保存自动清理运行时间：{error}");
+                                    }
                                     if let Err(error) =
                                         cleanup_app.emit("history-cleanup-completed", &result)
                                     {
@@ -3372,10 +3420,10 @@ mod tests {
     use super::MAX_HISTORY_ENTRIES;
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
-        SourceAppHint, build_toast_payload, classify_text, content_entry_id, decode_image_buffers,
-        file_name, has_autostart_argument, has_meaningful_clipboard_text,
-        history_entry_from_snapshot, history_entry_matches_snapshot, is_email_like,
-        is_existing_secure_item_error, is_image_format, is_image_path,
+        SourceAppHint, automatic_cleanup_is_due, build_toast_payload, classify_text,
+        content_entry_id, decode_image_buffers, file_name, has_autostart_argument,
+        has_meaningful_clipboard_text, history_entry_from_snapshot, history_entry_matches_snapshot,
+        is_email_like, is_existing_secure_item_error, is_image_format, is_image_path,
         is_missing_secure_item_error, is_protected_history_entry, is_sensitive_text,
         is_single_image_file, mark_sensitive_persistence_failure, merge_source_app_name,
         normalize_cleanup_schedule, normalize_file_path, normalize_history,
@@ -4232,12 +4280,79 @@ mod tests {
         let normalized = normalize_notification_settings(NotificationSettings {
             cleanup_days: 0,
             cleanup_schedule: "hourly".to_string(),
+            cleanup_last_run: Some("not-a-timestamp".to_string()),
             ..NotificationSettings::default()
         });
 
         assert_eq!(normalized.cleanup_days, 1);
         assert_eq!(normalized.cleanup_schedule, "startup");
+        assert_eq!(normalized.cleanup_last_run, None);
         assert_eq!(normalize_cleanup_schedule("weekly"), "weekly");
+    }
+
+    #[test]
+    fn automatic_cleanup_startup_schedule_runs_once_per_launch() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 11, 23, 12, 0, 0)
+            .single()
+            .expect("valid time");
+
+        assert!(automatic_cleanup_is_due("startup", true, None, now));
+        assert!(!automatic_cleanup_is_due(
+            "startup",
+            false,
+            Some("2026-11-23T11:00:00Z"),
+            now
+        ));
+    }
+
+    #[test]
+    fn daily_and_weekly_cleanup_intervals_survive_app_restarts() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 11, 23, 12, 0, 0)
+            .single()
+            .expect("valid time");
+
+        assert!(!automatic_cleanup_is_due(
+            "daily",
+            true,
+            Some("2026-11-22T13:00:00Z"),
+            now
+        ));
+        assert!(automatic_cleanup_is_due(
+            "daily",
+            false,
+            Some("2026-11-22T12:00:00Z"),
+            now
+        ));
+        assert!(!automatic_cleanup_is_due(
+            "weekly",
+            true,
+            Some("2026-11-16T13:00:00Z"),
+            now
+        ));
+        assert!(automatic_cleanup_is_due(
+            "weekly",
+            false,
+            Some("2026-11-16T12:00:00Z"),
+            now
+        ));
+    }
+
+    #[test]
+    fn interval_cleanup_runs_when_no_valid_previous_run_exists() {
+        let now = Utc
+            .with_ymd_and_hms(2026, 11, 23, 12, 0, 0)
+            .single()
+            .expect("valid time");
+
+        assert!(automatic_cleanup_is_due("daily", false, None, now));
+        assert!(automatic_cleanup_is_due(
+            "weekly",
+            false,
+            Some("invalid"),
+            now
+        ));
     }
 
     #[test]
