@@ -1070,7 +1070,9 @@
         // A native button can receive focus after click in WebView2. On some
         // Windows versions that focus step scrolls the feed to the top.
         event.preventDefault();
-        lockFeedScrollPosition();
+        // Keep the earliest position captured during pointerdown. Re-locking
+        // here can overwrite it with WebView2's transient focus scroll.
+        if (state.feedScrollLock === null) lockFeedScrollPosition();
         if (!state.selectionMode) {
           selectEntry(entry.id);
           event.currentTarget.blur();
