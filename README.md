@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：跨平台工作流通过**：上方徽章会显示工作流的动态状态。2026-11-23 对提交 `c5e212e` 的[最新验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45161934669)中，6 个检查与构建 job 全部成功：macOS Apple Silicon、macOS Intel、Windows 和 Linux 检查通过，macOS Apple Silicon、macOS Intel、Windows 桌面构建产物已上传为 Actions artifacts。本次 CI 不包含 Linux 桌面打包；Linux 安装包以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)为依据。本机 `cargo clippy --all-targets -- -D warnings` 和 64 项 Rust 测试通过。
+- **CI：跨平台工作流通过**：上方徽章会显示工作流的动态状态。2026-11-23 对提交 `382b2ec` 的[最新验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45171828390)中，6 个检查与构建 job 全部成功：Linux、Windows、macOS Apple Silicon 检查通过，macOS Apple Silicon、macOS Intel、Windows 桌面安装包均已作为 Actions artifacts 上传。Rust 测试在 Linux 和 Windows 各通过 65 项，在 macOS Apple Silicon 通过 67 项；格式检查、Clippy 和前端语法检查也均通过。本次 CI 不包含 Linux 桌面打包；Linux 安装包以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)为依据。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
 - **macOS Apple Silicon：构建和自动化检查通过；完整设备验收待复测**：本机已完成有限的后台文本捕获验证，确认复制内容能够进入本地历史并保留完整日期时间。完整的图片、文件、通知点击、开机启动、暂停监听、隐私模式、重启恢复和敏感内容交互清单需要在设备解锁后重新逐项验收；通过脚本或系统命令写入剪贴板时，来源应用也可能只能显示“未知应用”，不能把该来源当作审计级事实。
 - **macOS Intel：构建已验证，设备验收待完成**：Intel 构建已在 CI 成功，仍需要 Intel Mac 实机补做完整剪贴板、通知和开机启动验收。
@@ -307,7 +307,7 @@ notifications.json  通知开关、位置和持续时间
 | --- | --- | --- |
 | macOS Apple Silicon | 构建和自动化检查通过；完整设备验收待复测 | 已完成有限的后台文本捕获验证；图片 / 文件、通知交互、开机启动、暂停监听、隐私模式、敏感内容和重启恢复需要在设备解锁后逐项复测 |
 | macOS Intel | 构建已验证；真实设备验收待完成 | Actions 提供 Intel 安装包，需要补测剪贴板类型、通知交互和开机启动 |
-| Windows | GitHub Actions 检查与安装包构建已通过（[已验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45161934669)）；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
+| Windows | GitHub Actions 检查与安装包构建已通过（[已验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45171828390)）；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
 | Linux | GitHub Actions 检查通过；v0.1.0 x64 安装包构建已通过；真实设备验收待完成 | Release 提供 `.deb` 和 `.AppImage`；来源应用识别依赖桌面环境，优先使用 `xdotool`，不同桌面环境仍需实测 |
 
 安装后如果剪贴板没有自动进入历史，先进入 **设置 → 平台能力诊断**：
