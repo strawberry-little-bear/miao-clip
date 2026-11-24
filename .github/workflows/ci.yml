@@ -82,8 +82,10 @@ jobs:
 
       - name: Check frontend syntax
         run: |
+          node --check ui/capture-state.js
           node --check ui/main.js
           node --check ui/toast.js
+          node --test tests/capture-state.test.cjs
 
       - name: Check formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check

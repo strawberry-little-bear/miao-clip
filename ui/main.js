@@ -22,6 +22,7 @@
   const FEED_SCROLL_LOCK_MS = 1400;
   const FEED_SCROLL_RESTORE_DELAYS = [0, 16, 48, 140, 320, 640];
 
+  const isCaptureSuspended = window.MiaoClipCaptureState.isCaptureSuspended;
   const invoke = window.__TAURI__?.core?.invoke;
   const listen = window.__TAURI__?.event?.listen;
   const state = {
@@ -1653,7 +1654,7 @@
   }
 
   async function pollClipboard() {
-    if (!invoke || state.nativeMonitorRunning || state.isPollingClipboard || state.captureState.paused || state.captureState.privacyMode) return;
+    if (!invoke || state.nativeMonitorRunning || state.isPollingClipboard || isCaptureSuspended(state.captureState)) return;
     state.isPollingClipboard = true;
     try {
       const snapshot = await invoke("read_clipboard");
@@ -1744,7 +1745,7 @@
         elements.settingsNote.textContent = "已取消历史导入。";
       });
       await listen("clipboard-changed", ({ payload }) => {
-        if (state.captureState.paused || state.captureState.privacyMode) return;
+        if (isCaptureSuspended(state.captureState)) return;
         if (!payload || payload.kind === "other" || payload.kind === "empty") {
           pollClipboard();
           return;
@@ -1761,13 +1762,19 @@
         });
       });
     }
-    try {
-      const snapshot = await invoke("read_clipboard");
-      state.lastClipboardText = snapshot.kind === "other" ? null : snapshotSignature(snapshot);
-    } catch (error) {
-      console.warn("初始化剪贴板监听失败", error);
-      setMonitorStatus("error", "监听暂不可用", "可用上方按钮读取当前剪贴板");
-      return;
+    // Do not inspect the current clipboard as part of startup when the user
+    // has paused capture or enabled privacy mode. The native listener also
+    // exits its change callback before reading clipboard contents in these
+    // states; keep the WebView's fallback initialization aligned with it.
+    if (!isCaptureSuspended(state.captureState)) {
+      try {
+        const snapshot = await invoke("read_clipboard");
+        state.lastClipboardText = snapshot.kind === "other" ? null : snapshotSignature(snapshot);
+      } catch (error) {
+        console.warn("初始化剪贴板监听失败", error);
+        setMonitorStatus("error", "监听暂不可用", "可用上方按钮读取当前剪贴板");
+        return;
+      }
     }
     renderCaptureStatus();
     // Native events are preferred. Poll only while the native watcher is not
