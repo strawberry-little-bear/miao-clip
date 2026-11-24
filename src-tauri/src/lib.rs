@@ -1858,20 +1858,27 @@ fn protect_sensitive_entries(entries: &mut [HistoryEntry]) -> Result<bool, Strin
             continue;
         }
 
-        let secret_ref = entry
-            .secret_ref
-            .clone()
-            .unwrap_or_else(|| sensitive_secret_ref(&entry.id));
-        if entry.secret_ref.as_deref() != Some(secret_ref.as_str()) {
-            entry.secret_ref = Some(secret_ref.clone());
-            changed = true;
-        }
         if entry.category != "password" {
             entry.category = "password".to_string();
             changed = true;
         }
         if entry.title != "敏感信息" {
             entry.title = "敏感信息".to_string();
+            changed = true;
+        }
+
+        // Redacted imports may keep password metadata without retaining any
+        // recoverable secret. Do not invent a keyring reference for an empty
+        // entry, or the UI would offer a reveal action that cannot succeed.
+        let Some(secret_ref) = entry
+            .secret_ref
+            .clone()
+            .or_else(|| (!entry.text.is_empty()).then(|| sensitive_secret_ref(&entry.id)))
+        else {
+            continue;
+        };
+        if entry.secret_ref.as_deref() != Some(secret_ref.as_str()) {
+            entry.secret_ref = Some(secret_ref.clone());
             changed = true;
         }
         if !entry.text.is_empty() {
@@ -3428,10 +3435,10 @@ mod tests {
         is_single_image_file, mark_sensitive_persistence_failure, merge_source_app_name,
         normalize_cleanup_schedule, normalize_file_path, normalize_history,
         normalize_notification_settings, normalize_position, normalize_source_app_name,
-        notification_title, prune_old_entries, removed_sensitive_secret_refs,
-        secure_storage_capability, sensitive_secret_ref, sensitive_secret_ref_matches_text,
-        source_app_after_sampling, source_app_at_copy_boundary, stable_source_app_name,
-        take_source_app_hint, unavailable_image_snapshot, valid_image_id,
+        notification_title, protect_sensitive_entries, prune_old_entries,
+        removed_sensitive_secret_refs, secure_storage_capability, sensitive_secret_ref,
+        sensitive_secret_ref_matches_text, source_app_after_sampling, source_app_at_copy_boundary,
+        stable_source_app_name, take_source_app_hint, unavailable_image_snapshot, valid_image_id,
     };
 
     fn entry(id: &str, text: &str) -> HistoryEntry {
@@ -4210,8 +4217,10 @@ mod tests {
         password.kind = "文本".to_string();
         password.title = "敏感信息".to_string();
 
-        let entries = normalize_history(vec![password]);
+        let mut entries = normalize_history(vec![password]);
+        let changed = protect_sensitive_entries(&mut entries).expect("protection should succeed");
 
+        assert!(!changed);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].category, "password");
         assert!(entries[0].text.is_empty());
