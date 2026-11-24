@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：跨平台工作流通过**：上方徽章会显示工作流的动态状态。2026-11-24 对代码提交 `5672135` 的[验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45376207914)中，6 个检查与构建 job 全部成功：Ubuntu、Windows、macOS Apple Silicon 检查分别通过 65、65、67 项 Rust 测试；格式检查、Clippy 和前端语法检查也均通过。macOS Apple Silicon、macOS Intel、Windows x64 安装包已作为 Actions artifacts 上传。本次 CI 不包含 Linux 桌面打包；Linux 安装包以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)为依据。
+- **CI：跨平台工作流通过**：上方徽章会显示工作流的动态状态。2026-11-24 对代码提交 `2a8ed00` 的[验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45406705829)中，6 个检查与构建 job 全部成功：Ubuntu、Windows、macOS Apple Silicon 检查分别通过 65、65、67 项 Rust 测试；格式检查、Clippy 和前端语法检查也均通过。macOS Apple Silicon、macOS Intel、Windows x64 安装包已作为 Actions artifacts 上传。本次 CI 不包含 Linux 桌面打包；Linux 安装包以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990)为依据。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
 - **macOS Apple Silicon：构建和自动化检查通过；完整设备验收待完成**：本机 M5 上的运行实例已通过只读检查确认收件箱上限为 100 条，图片记录以图片形式显示并带有来源信息；没有读取或改写系统剪贴板，也没有新增历史。隔离的 Chromium + Tauri mock 测试覆盖了三栏拖动与布局持久化、窄屏无横向溢出，以及列表点击后的滚动保护；这些模拟测试不能代替真实剪贴板与系统通知验收。图片、文件捕获、通知点击、开机启动、暂停监听、隐私模式、重启恢复和敏感内容交互仍需按清单逐项确认；通过脚本或系统命令写入剪贴板时，来源应用也可能只能显示“未知应用”，不能把该来源当作审计级事实。
 - **macOS Intel：构建已验证，设备验收待完成**：Intel 构建已在 CI 成功，仍需要 Intel Mac 实机补做完整剪贴板、通知和开机启动验收。
@@ -307,7 +307,7 @@ notifications.json  通知开关、位置和持续时间
 | --- | --- | --- |
 | macOS Apple Silicon | 构建和自动化检查通过；完整设备验收待完成 | M5 运行实例只读确认图片预览与来源字段；隔离模拟覆盖三栏比例持久化和滚动保护；真实剪贴板、通知、开机启动、隐私模式及敏感内容仍需实测 |
 | macOS Intel | 构建已验证；真实设备验收待完成 | Actions 提供 Intel 安装包，需要补测剪贴板类型、通知交互和开机启动 |
-| Windows | GitHub Actions 检查与安装包构建已通过（[已验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45376207914)）；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
+| Windows | GitHub Actions 检查与安装包构建已通过（[已验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45406705829)）；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
 | Linux | GitHub Actions 检查通过；v0.1.0 x64 安装包构建已通过；真实设备验收待完成 | Release 提供 `.deb` 和 `.AppImage`；来源应用识别依赖桌面环境，优先使用 `xdotool`，不同桌面环境仍需实测 |
 
 安装后如果剪贴板没有自动进入历史，先进入 **设置 → 平台能力诊断**：
