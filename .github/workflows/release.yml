@@ -75,8 +75,26 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version '^2' --locked
 
-      - name: Build install packages
+      - name: Build macOS install packages with an ad-hoc signature
+        if: runner.os == 'macOS'
         run: cargo tauri build --bundles ${{ matrix.bundles }}
+        working-directory: src-tauri
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+
+      - name: Build non-macOS install packages
+        if: runner.os != 'macOS'
+        run: cargo tauri build --bundles ${{ matrix.bundles }}
+        working-directory: src-tauri
+
+      - name: Verify macOS app bundle signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app_path="$(find target/release/bundle/macos -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$app_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          codesign -dv --verbose=2 "$app_path" 2>&1 | grep -q 'Signature=adhoc'
         working-directory: src-tauri
 
       - name: Upload release packages
@@ -114,4 +132,4 @@ jobs:
             - Windows x64：`.msi` 或 `.exe`
             - Linux x64：`.deb` 或 `.AppImage`
 
-            此版本尚未进行代码签名或公证。macOS 和 Windows 可能显示系统安全提示；Linux 的桌面集成和剪贴板来源识别也会因发行版与桌面环境而异。首次使用前请确认下载来源，并阅读项目 README 中的平台说明。
+            macOS 应用包使用 ad-hoc 签名进行完整性校验，但未使用 Apple Developer ID 证书签名或公证，因此仍可能显示 macOS 安全提示。Windows 安装包未使用 Authenticode 证书签名，可能显示 SmartScreen 提示。Linux 的桌面集成和剪贴板来源识别也会因发行版与桌面环境而异。首次使用前请确认下载来源，并阅读项目 README 中的平台说明。

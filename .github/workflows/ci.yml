@@ -129,8 +129,26 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version '^2' --locked
 
-      - name: Build desktop bundle
+      - name: Build macOS desktop bundle with an ad-hoc signature
+        if: runner.os == 'macOS'
         run: cargo tauri build
+        working-directory: src-tauri
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+
+      - name: Build Windows desktop bundle
+        if: runner.os == 'Windows'
+        run: cargo tauri build
+        working-directory: src-tauri
+
+      - name: Verify macOS app bundle signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app_path="$(find target/release/bundle/macos -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$app_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          codesign -dv --verbose=2 "$app_path" 2>&1 | grep -q 'Signature=adhoc'
         working-directory: src-tauri
 
       - name: Upload install packages

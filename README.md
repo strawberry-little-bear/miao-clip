@@ -222,7 +222,7 @@ flowchart LR
 | `MiaoClip-macos-x64` | Intel Mac | `.dmg` |
 | `MiaoClip-windows-x64` | 64 位 Windows | `.msi` 和 `.exe` |
 
-Actions 试用产物保留 30 天。正式 Release 还提供 Linux x64 的 `.deb` 和 `.AppImage`。当前安装包未进行代码签名或公证，macOS 可能提示无法验证开发者，Windows 可能显示 SmartScreen 提示；Linux 的桌面集成和剪贴板来源识别会因发行版与桌面环境而异。请确认下载来源并阅读对应平台说明后再安装。
+Actions 试用产物保留 30 天。正式 Release 还提供 Linux x64 的 `.deb` 和 `.AppImage`。当前发布的 `v0.1.0` 未使用 Apple Developer ID 证书签名或公证；后续 macOS 自动构建会使用 ad-hoc 签名进行应用包完整性校验，但这不代表开发者身份，也不会消除 macOS 的安全提示。Windows 安装包未使用 Authenticode 证书签名，可能显示 SmartScreen 提示；Linux 的桌面集成和剪贴板来源识别会因发行版与桌面环境而异。请确认下载来源并阅读对应平台说明后再安装。
 
 维护者发布新版本时，先将 `src-tauri/tauri.conf.json` 中的应用版本更新为目标版本，再为对应提交创建并推送同名标签，例如 `v1.2.3`。Release 工作流会校验标签和应用版本一致，构建所有平台安装包并自动附加到 GitHub Release；任一平台构建失败时不会发布不完整版本。
 
