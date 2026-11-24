@@ -35,7 +35,7 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：跨平台工作流通过**：2026-11-24 对提交 `9e8c553` 的 [验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45445246204)中，6 个检查与构建 job 全部成功：Ubuntu、Windows 和 macOS Apple Silicon 检查分别通过 64、64、66 项 Rust 测试；格式检查、Clippy 和前端语法检查均通过。macOS Apple Silicon、macOS Intel 和 Windows x64 安装包构建成功并作为 Actions artifacts 上传；两种 macOS app bundle 的 ad-hoc 签名均通过 `codesign` 校验。此 CI 不包含 Linux 桌面打包；Linux 安装包仍以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 为依据。
+- **CI：跨平台工作流通过**：2026-11-24 对提交 `bec3e6e` 的 [验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45449758315)中，6 个检查与构建 job 全部成功：Ubuntu、Windows 和 macOS Apple Silicon 检查分别通过 64、64、66 项 Rust 测试；格式检查、Clippy 和前端语法检查均通过。macOS Apple Silicon、macOS Intel 和 Windows x64 安装包构建成功并作为 Actions artifacts 上传；两种 macOS app bundle 的 ad-hoc 签名均通过 `codesign` 校验。此 CI 不包含 Linux 桌面打包；Linux 安装包仍以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 为依据。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
 - **macOS Apple Silicon：构建和自动化检查通过；完整设备验收待完成**：本机 M5 上的运行实例已通过只读检查确认旧版收件箱显示上限为 100 条，图片记录以图片形式显示并带有来源信息；没有读取或改写系统剪贴板，也没有新增历史。隔离的 Chromium + Tauri mock 回归测试还覆盖了三栏拖动、键盘调整与布局持久化、分隔条聚焦时无蓝色光晕、窄屏无横向溢出，以及列表点击后的滚动保护；这些模拟测试不能代替真实剪贴板与系统通知验收。图片、文件捕获、通知点击、开机启动、暂停监听、隐私模式、重启恢复和敏感内容交互仍需按清单逐项确认；通过脚本或系统命令写入剪贴板时，来源应用也可能只能显示“未知应用”，不能把该来源当作审计级事实。
 - **macOS Intel：构建已验证，设备验收待完成**：Intel 构建已在 CI 成功，仍需要 Intel Mac 实机补做完整剪贴板、通知和开机启动验收。
