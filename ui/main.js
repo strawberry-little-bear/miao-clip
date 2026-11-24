@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const HISTORY_ENTRY_LIMIT = 100;
+  const FEED_PAGE_SIZE = 100;
   // Keep the math in sync with the 16px CSS hit area. A stale value here
   // makes the feed/detail boundary stop a few pixels away from the pointer.
   const LAYOUT_SPLITTER_SIZE = 16;
@@ -72,6 +72,7 @@
     layout: {
       ...DEFAULT_LAYOUT,
     },
+    feedVisibleLimit: FEED_PAGE_SIZE,
   };
   const elements = {
     viewTitle: document.getElementById("view-title"),
@@ -157,18 +158,8 @@
     sidebarSplitter: document.getElementById("sidebar-splitter"),
     feedSplitter: document.getElementById("feed-splitter"),
     resetLayout: document.getElementById("reset-layout"),
+    loadMoreFeed: document.getElementById("load-more-feed"),
   };
-
-  function capHistoryEntries(entries) {
-    let ordinaryKept = 0;
-    if (entries.filter((entry) => !entry.pinned).length <= HISTORY_ENTRY_LIMIT) return entries;
-    return entries.filter((entry) => {
-      if (entry.pinned) return true;
-      if (ordinaryKept >= HISTORY_ENTRY_LIMIT) return false;
-      ordinaryKept += 1;
-      return true;
-    });
-  }
 
   function updateLayoutSplitterValue(splitter, value) {
     if (!splitter) return;
@@ -1006,17 +997,17 @@
     const feedScrollTop = rememberFeedScrollPosition();
     syncSourceFilter();
     syncTagFilter();
-    const entries = visibleEntries();
+    const filteredEntries = visibleEntries();
+    const entries = filteredEntries.slice(0, state.feedVisibleLimit);
     const entryIds = new Set(state.entries.map((entry) => entry.id));
     state.selectedIds.forEach((id) => {
       if (!entryIds.has(id)) state.selectedIds.delete(id);
     });
-    const ordinaryCount = state.entries.filter((entry) => !entry.pinned).length;
-    const pinnedCount = state.entries.length - ordinaryCount;
+    const pinnedCount = state.entries.filter((entry) => entry.pinned).length;
     elements.inboxCount.textContent = String(state.entries.length);
-    elements.inboxCount.title = `普通记录 ${ordinaryCount}/${HISTORY_ENTRY_LIMIT}；固定记录 ${pinnedCount} 条不受数量上限影响`;
+    elements.inboxCount.title = `本机共保存 ${state.entries.length} 条记录，其中收藏 ${pinnedCount} 条`;
     elements.feedCaption.textContent = state.entries.length
-      ? `普通记录 ${ordinaryCount}/${HISTORY_ENTRY_LIMIT} · 超出后淘汰最旧未固定记录 · 固定记录 ${pinnedCount} 条不受上限影响`
+      ? `显示 ${entries.length}/${filteredEntries.length} 条匹配记录 · 共 ${state.entries.length} 条（收藏 ${pinnedCount} 条）`
       : "复制内容后会自动出现在这里";
     const emptyFeedVisible = entries.length === 0;
     elements.emptyFeed.hidden = !emptyFeedVisible;
@@ -1052,7 +1043,7 @@
       const card = document.createElement("article");
       const protectedEntry = isProtectedEntry(entry);
       card.setAttribute("role", "listitem");
-      card.setAttribute("aria-setsize", String(entries.length));
+      card.setAttribute("aria-setsize", String(filteredEntries.length));
       card.setAttribute("aria-posinset", String(index + 1));
       card.className = `feed-card${entry.id === state.selectedId ? " is-selected" : ""}${state.selectionMode ? " is-selection-mode" : ""}`;
       const icon = entry.kind === "图片" ? "▧" : entry.kind === "文件" ? "↗" : entry.kind === "JSON" ? "{}" : protectedEntry ? "•" : entry.category === "url" ? "↗" : entry.category === "account" ? "@" : "T";
@@ -1087,6 +1078,13 @@
       card.querySelector(".delete-button").addEventListener("click", (event) => deleteEntry(entry.id, event));
       elements.feed.append(card);
     });
+    if (elements.loadMoreFeed) {
+      const remaining = filteredEntries.length - entries.length;
+      elements.loadMoreFeed.hidden = remaining <= 0;
+      elements.loadMoreFeed.textContent = remaining > 0
+        ? `加载更早记录（还有 ${remaining} 条）`
+        : "";
+    }
     restoreFeedScrollPosition(feedScrollTop);
   }
 
@@ -1185,6 +1183,10 @@
       return;
     }
     state.quickPasteIndex = Math.min(Math.max(state.quickPasteIndex, 0), entries.length - 1);
+    if (state.quickPasteIndex >= state.feedVisibleLimit) {
+      state.feedVisibleLimit = Math.ceil((state.quickPasteIndex + 1) / FEED_PAGE_SIZE) * FEED_PAGE_SIZE;
+    }
+    renderFeed();
     selectEntry(entries[state.quickPasteIndex].id);
     elements.feed.querySelector(".is-quick-selected")?.scrollIntoView({ block: "nearest" });
   }
@@ -1482,7 +1484,7 @@
   async function loadHistory() {
     requireTauri();
     const entries = await invoke("load_history");
-    state.entries = capHistoryEntries(entries.map(normalizeEntry));
+    state.entries = entries.map(normalizeEntry);
     elements.feedCaption.textContent = state.entries.length
       ? `已恢复 ${state.entries.length} 条本地历史`
       : "复制内容后会自动出现在这里";
@@ -1580,7 +1582,7 @@
         source_app: mergeSourceApp(existing.source_app, entry.source_app),
       }
       : entry;
-    state.entries = capHistoryEntries([storedEntry, ...state.entries.filter((item) => !sameContent(item))]);
+    state.entries = [storedEntry, ...state.entries.filter((item) => !sameContent(item))];
     state.selectedId = storedEntry.id;
     // Automatic captures must update the inbox immediately as well as the
     // detail panel. renderFeed() preserves the user's scroll position, which
@@ -2020,6 +2022,11 @@
   function clearSelectionBeforeFilterChange() {
     if (state.selectionMode) state.selectedIds.clear();
   }
+
+  elements.loadMoreFeed?.addEventListener("click", () => {
+    state.feedVisibleLimit += FEED_PAGE_SIZE;
+    renderFeed();
+  });
 
   elements.searchInput.addEventListener("input", () => {
     clearSelectionBeforeFilterChange();

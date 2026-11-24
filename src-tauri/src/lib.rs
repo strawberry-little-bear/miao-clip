@@ -34,7 +34,6 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 #[cfg(desktop)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-const MAX_HISTORY_ENTRIES: usize = 100;
 const HISTORY_FILE_NAME: &str = "history.json";
 const NOTIFICATION_SETTINGS_FILE_NAME: &str = "notifications.json";
 const IMAGE_DIRECTORY_NAME: &str = "images";
@@ -1720,29 +1719,9 @@ fn normalize_history(entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
         }
     }
 
-    let ordinary_count = normalized.iter().filter(|entry| !entry.pinned).count();
-    if ordinary_count <= MAX_HISTORY_ENTRIES {
-        return normalized;
-    }
-
-    // Keep every fixed record and the newest ordinary records. The input is
-    // newest-first everywhere history is written, so fixed records never
-    // consume the ordinary-history capacity. Older ordinary records are
-    // intentionally removed from the local history file at this point.
-    let mut ordinary_kept = 0;
+    // Do not impose an implicit count-based retention policy. Users control
+    // history deletion explicitly or through the configured age-based cleanup.
     normalized
-        .into_iter()
-        .filter(|entry| {
-            if entry.pinned {
-                true
-            } else if ordinary_kept < MAX_HISTORY_ENTRIES {
-                ordinary_kept += 1;
-                true
-            } else {
-                false
-            }
-        })
-        .collect()
 }
 
 fn prune_old_entries(
@@ -3424,7 +3403,6 @@ mod tests {
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::Duration;
 
-    use super::MAX_HISTORY_ENTRIES;
     use super::{
         CaptureState, ClipboardSnapshot, HistoryEntry, HistoryFile, NotificationSettings,
         SourceAppHint, automatic_cleanup_is_due, build_toast_payload, classify_text,
@@ -4154,30 +4132,25 @@ mod tests {
     }
 
     #[test]
-    fn history_cap_keeps_one_hundred_newest_ordinary_entries_and_all_pinned_entries() {
-        let mut entries = (0..105)
+    fn history_keeps_more_than_one_hundred_unpinned_entries() {
+        let mut entries = (0..250)
             .map(|index| entry(&format!("ordinary-{index}"), &format!("ordinary-{index}")))
             .collect::<Vec<_>>();
         entries.reverse();
-        let mut pinned = entry("pinned-old", "pinned-old");
-        pinned.pinned = true;
-        entries.push(pinned);
 
         let normalized = normalize_history(entries);
 
-        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES + 1);
-        assert!(normalized.iter().any(|item| item.id == "pinned-old"));
-        assert!(normalized.iter().any(|item| item.id == "ordinary-104"));
-        assert!(normalized.iter().any(|item| item.id == "ordinary-5"));
-        assert!(!normalized.iter().any(|item| item.id == "ordinary-4"));
+        assert_eq!(normalized.len(), 250);
+        assert_eq!(normalized.first().unwrap().id, "ordinary-249");
+        assert_eq!(normalized.last().unwrap().id, "ordinary-0");
     }
 
     #[test]
-    fn history_cap_allows_more_than_one_hundred_when_all_extra_entries_are_pinned() {
-        let mut entries = (0..MAX_HISTORY_ENTRIES + 3)
+    fn history_keeps_all_pinned_and_unpinned_entries() {
+        let mut entries = (0..150)
             .map(|index| {
-                let mut item = entry(&format!("pinned-{index}"), &format!("pinned-{index}"));
-                item.pinned = true;
+                let mut item = entry(&format!("entry-{index}"), &format!("entry-{index}"));
+                item.pinned = index % 2 == 0;
                 item
             })
             .collect::<Vec<_>>();
@@ -4185,29 +4158,8 @@ mod tests {
 
         let normalized = normalize_history(entries);
 
-        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES + 3);
-        assert!(normalized.iter().all(|item| item.pinned));
-    }
-
-    #[test]
-    fn history_cap_does_not_drop_ordinary_entries_when_fixed_entries_exceed_capacity() {
-        let mut entries = (0..MAX_HISTORY_ENTRIES + 1)
-            .map(|index| {
-                let mut item = entry(&format!("pinned-{index}"), &format!("pinned-{index}"));
-                item.pinned = true;
-                item
-            })
-            .collect::<Vec<_>>();
-        entries.push(entry("ordinary", "ordinary"));
-
-        let normalized = normalize_history(entries);
-
-        assert_eq!(normalized.len(), MAX_HISTORY_ENTRIES + 2);
-        assert_eq!(
-            normalized.iter().filter(|item| item.pinned).count(),
-            MAX_HISTORY_ENTRIES + 1
-        );
-        assert!(normalized.iter().any(|item| item.id == "ordinary"));
+        assert_eq!(normalized.len(), 150);
+        assert_eq!(normalized.iter().filter(|item| item.pinned).count(), 75);
     }
 
     #[test]

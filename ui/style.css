@@ -94,6 +94,9 @@ h2 { font-size: 17px; font-weight: 760; }
 .quiet-button { border: 0; color: #858b85; background: transparent; font-size: 11px; }
 .quiet-button:hover { color: var(--accent); }
 .feed { display: grid; gap: 9px; }
+.load-more-feed { display: block; width: 100%; margin: 12px 0 28px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 7px; color: #66706b; background: rgba(255, 254, 250, 0.72); font-size: 12px; transition: border-color 120ms ease, background 120ms ease; }
+.load-more-feed:hover { border-color: #cbc8bf; background: var(--paper); }
+.load-more-feed:focus-visible { outline: 2px solid var(--focus-line); outline-offset: 2px; }
 .empty-feed { display: grid; justify-items: center; padding: 82px 30px 76px; border: 1px dashed #d7d6ce; border-radius: 9px; color: var(--muted); background: rgba(255, 254, 250, 0.5); text-align: center; }
 .empty-mark { display: grid; place-items: center; width: 38px; height: 38px; margin-bottom: 14px; border: 1px solid #d8d7cf; border-radius: 50%; color: #9b9e98; font-size: 22px; font-weight: 300; }
 .empty-feed strong { color: #575d58; font-size: 14px; }

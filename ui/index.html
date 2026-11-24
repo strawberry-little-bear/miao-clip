@@ -71,6 +71,7 @@
                 <button class="empty-action" id="empty-read-button" type="button" title="手动读取一次当前剪贴板">手动读取一次</button>
               </div>
             </div>
+            <button class="load-more-feed" id="load-more-feed" type="button" hidden>加载更早记录</button>
           </section>
           <div class="layout-splitter layout-splitter-feed" id="feed-splitter" role="separator" aria-label="调整收件箱和详情宽度" aria-orientation="vertical" aria-valuemin="260" aria-valuemax="1000" aria-valuenow="560" aria-valuetext="560 像素" tabindex="0" title="拖动调整收件箱和详情宽度；双击恢复默认；也可使用左右方向键"></div>
 
@@ -127,8 +128,8 @@
             <label class="setting-row setting-row-warning"><span><strong>隐私模式</strong><small>暂停自动捕获、桌面通知和新记录写入；适合复制银行卡号、身份证或私人聊天内容，关闭妙夹后会自动恢复监听。</small></span><input id="privacy-mode" type="checkbox" /></label>
             <label class="setting-row"><span><strong>提示位置</strong><small>选择独立提示浮层出现在哪个屏幕角落。</small></span><select id="notify-position"><option value="top-left">左上角</option><option value="top-right">右上角</option><option value="bottom-left">左下角</option><option value="bottom-right" selected>右下角</option></select></label>
             <label class="setting-row"><span><strong>提示框持续时间</strong><small>控制桌面浮层和妙夹窗口内提示显示多久，时间到后会自动消失。</small></span><select id="notify-duration"><option value="1500">1.5 秒</option><option value="2500">2.5 秒</option><option value="3000" selected>3 秒</option><option value="5000">5 秒</option><option value="8000">8 秒</option><option value="15000">15 秒</option></select></label>
-            <label class="setting-row setting-row-warning"><span><strong>自动清理历史</strong><small>按下面的保留时间自动清理未收藏记录；收藏内容永远保留。默认关闭，开启后会在后台执行。</small></span><input id="cleanup-enabled" type="checkbox" /></label>
-            <div class="setting-row setting-row-cleanup"><span><strong>清理规则</strong><small>自动清理只处理超过保留时间且未收藏的内容；图片和敏感正文也会同步清理。</small></span><div class="setting-controls"><select id="cleanup-days" aria-label="历史保留时间"><option value="1">保留 1 天</option><option value="3">保留 3 天</option><option value="7">保留 7 天</option><option value="14">保留 14 天</option><option value="30" selected>保留 30 天</option><option value="60">保留 60 天</option><option value="90">保留 90 天</option><option value="180">保留 180 天</option><option value="365">保留 1 年</option></select><select id="cleanup-schedule" aria-label="自动清理频率"><option value="startup">每次启动时</option><option value="daily">每天</option><option value="weekly">每周</option></select><button class="quiet-button danger-button" id="cleanup-old-history" type="button">立即清理</button></div></div>
+            <label class="setting-row setting-row-warning"><span><strong>自动清理历史</strong><small>按你设置的保留时间清理未收藏记录；不开启时不会因条数上限淘汰历史，收藏内容永远保留。默认关闭。</small></span><input id="cleanup-enabled" type="checkbox" /></label>
+            <div class="setting-row setting-row-cleanup"><span><strong>清理规则</strong><small>自动清理只处理超过保留时间且未收藏的内容；图片和敏感正文也会同步清理。历史记录没有固定条数上限。</small></span><div class="setting-controls"><select id="cleanup-days" aria-label="历史保留时间"><option value="1">保留 1 天</option><option value="3">保留 3 天</option><option value="7">保留 7 天</option><option value="14">保留 14 天</option><option value="30" selected>保留 30 天</option><option value="60">保留 60 天</option><option value="90">保留 90 天</option><option value="180">保留 180 天</option><option value="365">保留 1 年</option></select><select id="cleanup-schedule" aria-label="自动清理频率"><option value="startup">每次启动时</option><option value="daily">每天</option><option value="weekly">每周</option></select><button class="quiet-button danger-button" id="cleanup-old-history" type="button">立即清理</button></div></div>
             <div class="setting-row setting-row-backup"><span><strong>历史备份</strong><small>导出或导入本机历史，导入会与现有内容合并；敏感内容只保留遮罩后的记录信息，不会导出原文。</small></span><div class="setting-controls"><button class="quiet-button" id="export-history" type="button">导出历史</button><button class="quiet-button" id="import-history" type="button">导入历史</button></div></div>
           </div>
           <p class="settings-note" id="settings-note">通知设置只保存在本机。备份文件仍可能包含普通文本、URL、文件路径和图片，请妥善保管。</p>
@@ -152,6 +153,6 @@
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
     <script src="capture-state.js?v=1"></script>
-    <script src="main.js?v=34"></script>
+    <script src="main.js?v=35"></script>
   </body>
 </html>
