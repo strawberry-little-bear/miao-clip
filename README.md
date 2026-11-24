@@ -305,9 +305,9 @@ notifications.json  通知开关、位置和持续时间
 
 | 平台 | 当前状态 | 说明 |
 | --- | --- | --- |
-| macOS Apple Silicon | 构建和自动化检查通过；完整设备验收待复测 | 已验证三栏分隔条可拖动调整并可恢复布局；图片 / 文件、通知交互、开机启动、暂停监听、隐私模式、敏感内容和重启恢复仍需逐项实测 |
+| macOS Apple Silicon | 构建和自动化检查通过；完整设备验收待完成 | M5 运行实例只读确认图片预览与来源字段；隔离模拟覆盖三栏比例持久化和滚动保护；真实剪贴板、通知、开机启动、隐私模式及敏感内容仍需实测 |
 | macOS Intel | 构建已验证；真实设备验收待完成 | Actions 提供 Intel 安装包，需要补测剪贴板类型、通知交互和开机启动 |
-| Windows | GitHub Actions 检查与安装包构建已通过（[已验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45180422047)）；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
+| Windows | GitHub Actions 检查与安装包构建已通过（[已验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45376207914)）；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
 | Linux | GitHub Actions 检查通过；v0.1.0 x64 安装包构建已通过；真实设备验收待完成 | Release 提供 `.deb` 和 `.AppImage`；来源应用识别依赖桌面环境，优先使用 `xdotool`，不同桌面环境仍需实测 |
 
 安装后如果剪贴板没有自动进入历史，先进入 **设置 → 平台能力诊断**：
