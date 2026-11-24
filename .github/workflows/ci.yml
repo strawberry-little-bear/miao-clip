@@ -85,7 +85,7 @@ jobs:
           node --check ui/capture-state.js
           node --check ui/main.js
           node --check ui/toast.js
-          node --test tests/capture-state.test.cjs
+          node --test tests/capture-state.test.cjs tests/splitter-style.test.cjs
 
       - name: Check formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
