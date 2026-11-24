@@ -1114,7 +1114,7 @@
   }
 
   function toggleVisibleSelection() {
-    const entries = visibleEntries();
+    const entries = visibleEntries().slice(0, state.feedVisibleLimit);
     const allSelected = entries.length > 0 && entries.every((entry) => state.selectedIds.has(entry.id));
     entries.forEach((entry) => {
       if (allSelected) state.selectedIds.delete(entry.id);
