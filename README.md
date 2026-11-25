@@ -35,9 +35,9 @@
 
 当前稳定测试版本为 **`v0.1.0`**，并已发布到 [GitHub Releases](https://github.com/strawberry-little-bear/miao-clip/releases/tag/v0.1.0)。
 
-- **CI：跨平台工作流通过**：2026-11-25 对提交 `e568afa` 的 [验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45460083236)中，6 个检查与构建 job 全部成功。Ubuntu、Windows 和 macOS Apple Silicon 的前端语法、Rust 格式、Clippy 与测试检查均通过；macOS Apple Silicon、macOS Intel 和 Windows x64 安装包成功构建并上传为 Actions artifacts，两种 macOS app bundle 的 ad-hoc 签名校验通过。此 CI 不包含 Linux 桌面打包；Linux 安装包仍以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 为依据。
+- **CI：跨平台工作流通过**：2026-11-25 对提交 `531265e` 的 [验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45464417848)中，6 个检查与构建 job 全部成功。Ubuntu、Windows 和 macOS Apple Silicon 的前端语法、Rust 格式、Clippy 与测试检查均通过；macOS Apple Silicon、macOS Intel 和 Windows x64 安装包成功构建并上传为 Actions artifacts，两种 macOS app bundle 的 ad-hoc 签名校验通过。此 CI 不包含 Linux 桌面打包；Linux 安装包仍以 [v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 为依据。
 - **Release：通过**：[v0.1.0 发布构建](https://github.com/strawberry-little-bear/miao-clip/actions/runs/41500390990) 已成功生成 macOS、Windows 和 Linux（`.deb` / `.AppImage`）安装包。
-- **macOS Apple Silicon：构建和自动化检查通过；完整设备验收待完成**：本机 M5 上的运行实例已通过只读检查确认旧版收件箱显示上限为 100 条，图片记录以图片形式显示并带有来源信息；没有读取或改写系统剪贴板，也没有新增历史。隔离的 Chromium + Tauri mock 回归测试还覆盖了三栏拖动、键盘调整与布局持久化、分隔条聚焦时无蓝色光晕、窄屏无横向溢出，以及列表点击后的滚动保护；这些模拟测试不能代替真实剪贴板与系统通知验收。图片、文件捕获、通知点击、开机启动、暂停监听、隐私模式、重启恢复和敏感内容交互仍需按清单逐项确认；通过脚本或系统命令写入剪贴板时，来源应用也可能只能显示“未知应用”，不能把该来源当作审计级事实。
+- **macOS Apple Silicon：构建和 CI 检查通过；完整设备验收待完成**：仓库中可复现的前端自动化测试覆盖捕获状态切换，以及分隔条的低对比度中性色样式（包括键盘焦点不泛蓝光）；它们不验证实际拖动、比例持久化、Windows 原生滚动行为或系统剪贴板交互。图片 / 文件捕获与再次复制、通知点击、开机启动、暂停监听、隐私模式、重启恢复和敏感内容交互仍需在当前版本上逐项实测；通过脚本或系统命令写入剪贴板时，来源应用也可能只能显示“未知应用”，不能把该来源当作审计级事实。
 - **macOS Intel：构建已验证，设备验收待完成**：Intel 构建已在 CI 成功，仍需要 Intel Mac 实机补做完整剪贴板、通知和开机启动验收。
 - **Windows / Linux：构建已验证，设备验收待完成**：Windows 构建和 Linux 检查已通过 CI；通知、开机启动、WebView2 或桌面环境差异需要在对应真实设备上检查。
 
@@ -306,7 +306,7 @@ notifications.json  通知开关、位置和持续时间
 
 | 平台 | 当前状态 | 说明 |
 | --- | --- | --- |
-| macOS Apple Silicon | 构建和自动化检查通过；完整设备验收待完成 | M5 运行实例只读确认图片预览与来源字段；隔离模拟覆盖三栏比例持久化和滚动保护；真实剪贴板、通知、开机启动、隐私模式及敏感内容仍需实测 |
+| macOS Apple Silicon | 构建和 CI 检查通过；完整设备验收待完成 | 可复现自动化测试覆盖捕获状态和分隔条中性样式；三栏拖动与比例保存、真实剪贴板、通知、开机启动、隐私模式及敏感内容仍需实测 |
 | macOS Intel | 构建已验证；真实设备验收待完成 | Actions 提供 Intel 安装包，需要补测剪贴板类型、通知交互和开机启动 |
 | Windows | GitHub Actions 检查与安装包构建已通过（[已验证运行](https://github.com/strawberry-little-bear/miao-clip/actions/runs/45424543594)）；真实设备验收待完成 | Release 提供 64 位 MSI 和 EXE；需要实测 WebView2、通知、开机启动及剪贴板行为 |
 | Linux | GitHub Actions 检查通过；v0.1.0 x64 安装包构建已通过；真实设备验收待完成 | Release 提供 `.deb` 和 `.AppImage`；来源应用识别依赖桌面环境，优先使用 `xdotool`，不同桌面环境仍需实测 |
